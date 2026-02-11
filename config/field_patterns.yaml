@@ -1,0 +1,422 @@
+# ==============================================================================
+# SHEET IDENTIFICATION
+# ==============================================================================
+# These patterns identify which sheet contains invoice vs packing data.
+# Sheet names are stripped of whitespace before matching.
+
+invoice_sheet:
+  patterns:
+    - '(?i)^invoice'            # Exact: INVOICE, Invoice
+    - '(?i)^inv$'               # Short: INV
+    - '(?i)^commercial'         # Commercial Invoice
+
+packing_sheet:
+  patterns:
+    - '(?i)^packing'            # Exact: PACKING, Packing
+    - '(?i)^pack'               # Prefix: PACK, PACKLIST
+    - '(?i)^pak$'               # Variant: PAK
+    - '(?i)^dn&pl$'             # Special: DN&PL (HK-CSL vendor)
+
+
+# ==============================================================================
+# INVOICE FIELDS
+# ==============================================================================
+# Column mapping patterns for invoice sheet.
+# Required fields must be found or file status = FAILED.
+
+invoice_columns:
+
+  # ----------------------------------------------------------------------------
+  # PART NUMBER (Required)
+  # Critical field for matching invoice items to packing data
+  # ----------------------------------------------------------------------------
+  part_no:
+    patterns:
+      # English
+      - '(?i)^part\s*no\.?$'              # Part No, Part No.
+      - '(?i)^part\s*number'              # Part Number
+      - '(?i)^p/n$'                       # P/N
+      - '(?i)^cpn$'                       # Customer Part Number
+      - '(?i)^mpn$'                       # Manufacturer Part Number
+      - '(?i)^customer\s*part\s*number'   # Customer Part Number (full)
+      - '(?i)customer\s*p/n'              # Customer P/N (顺络电子 format)
+      - '(?i)customer\s*part\s*no'        # Customer Part No.
+      # Chinese
+      - '(?i)料号'                        # 料号
+      - '(?i)企业料号'                     # Enterprise Part Number
+      - '(?i)商络料号'                     # Sunlord Part Number
+      - '(?i)备案料号'                     # Filing Part Number
+      - '(?i)我司料号'                     # Our Company Part Number
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # PO NUMBER (Required)
+  # Purchase Order reference
+  # ----------------------------------------------------------------------------
+  po_no:
+    patterns:
+      # English
+      - '(?i)^p\.?o\.?\s*no\.?'           # PO No, P.O. No., PO NO.
+      - '(?i)^po\s*number'                # PO Number
+      - '(?i)^order\s*no'                # PO Number
+      - '(?i)^po#'                        # PO#
+      - '(?i)^purchase\s*order'           # Purchase Order
+      - '(?i)^customer\s*purchase\s*order'# Customer Purchase Order
+      - '(?i)^cpo'                        # CPO
+      # Chinese
+      - '(?i)采购订单号'                   # Purchase Order Number
+      - '(?i)订单号'                       # Order Number
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # QUANTITY (Required)
+  # Number of units
+  # ----------------------------------------------------------------------------
+  qty:
+    patterns:
+      # English
+      - '(?i)^qty\.?$'                    # Qty, Qty.
+      - '(?i)^quantity'                   # Quantity
+      - '(?i)quantity\s*shipped'          # Quantity Shipped
+      - '(?i)quantity.*\(pcs\)'           # Quantity (PCS)
+      - '(?i)^pcs$'                       # PCS
+      - '(?i)^q\.?t\.?y\.?'               # Q.T.Y, QTY
+      - '(?i)^qty\s*\('                   # QTY(kpcs), QTY(PCS) (顺络电子 format)
+      # Chinese
+      - '(?i)数量'                        # 数量
+      - '(?i)申报数量'                     # Declaration Quantity
+      - '(?i)法一数量'                     # Method 1 Quantity
+      - '(?i)法二数量'                     # Method 2 Quantity
+    type: numeric
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # UNIT PRICE (Required)
+  # Price per unit
+  # ----------------------------------------------------------------------------
+  price:
+    patterns:
+      # English
+      - '(?i)^unit\s*price'               # Unit Price
+      - '(?i)^price'                      # Price
+      - '(?i)unit\s*price.*usd'           # Unit Price (USD)
+      - '(?i)^u\.?\s*price'               # U.Price, U Price
+      - '(?i)price.*unit'                 # Price per Unit
+      # Chinese
+      - '(?i)单价'                        # 单价
+      - '(?i)申报单价'                     # Declaration Unit Price
+      - '(?i)价格'                        # 价格
+    type: numeric
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # AMOUNT (Required)
+  # Total value (qty * price)
+  # ----------------------------------------------------------------------------
+  amount:
+    patterns:
+      # English
+      - '(?i)^amount'                     # Amount
+      - '(?i)amount.*usd'                 # Amount (USD)
+      - '(?i)^amt\.?'                     # Amt, Amt.
+      - '(?i)^total'                      # Total
+      - '(?i)total.*price'                # Total Price
+      # Chinese
+      - '(?i)金额'                        # 金额
+      - '(?i)总金额'                      # 总金额
+      - '(?i)^总价$'                      # 总价 (exact match)
+    type: currency
+    required: true
+
+  currency:
+    patterns:
+      # English
+      - '(?i)^currency$'                  # Currency
+      - '(?i)^curr\.?$'                   # Curr, Curr.
+      - '(?i)^cur$'                       # Cur
+      # Currency code patterns (for embedded currency in sub-row)
+      - '^USD$'                           # USD currency code
+      - '^CNY$'                           # CNY currency code
+      - '^EUR$'                           # EUR currency code
+      - '^RMB$'                           # RMB currency code
+      # Chinese
+      - '(?i)币制'                        # 币制
+      - '(?i)货币'                        # 货币
+    type: string
+    required: true
+
+  coo:
+    patterns:
+      # English
+      - '(?i)^c\.?o\.?o\.?$'              # COO, C.O.O, C.O.O.
+      - '(?i)country.*origin'             # Country of Origin
+      - '(?i)origin.*country'             # Origin country
+      - '(?i)^origin$'                    # Origin
+      - '(?i)^country$'                   # Country
+      - '(?i)made.*in'                    # Made in
+      # Chinese
+      - '(?i)原产国'                      # 原产国
+      - '(?i)产地'                        # 产地
+      - '(?i)原产地'                      # 原产地
+    type: string
+    required: true
+
+  cod:
+    patterns:
+      # English
+      - '(?i)^c\.?o\.?d\.?$'              # COD, C.O.D, C.O.D.
+    type: string
+    required: false
+
+  # ----------------------------------------------------------------------------
+  # BRAND (Required)
+  # Manufacturer brand name
+  # ----------------------------------------------------------------------------
+  brand:
+    patterns:
+      # English
+      - '(?i)^brand$'                     # Brand
+      - '(?i)^supplier$'                  # Supplier
+      - '(?i)^manufacturer'               # Manufacturer
+      - '(?i)^mfr\.?'                     # Mfr, Mfr.
+      - '(?i)^mfg\.?'                     # Mfg, Mfg.
+      # Chinese
+      - '(?i)^品牌$'                      # 品牌 (exact to avoid 品牌类型)
+      - '(?i)品牌.*brand'                  # 品牌 Brand, 品牌（Brand）
+      - '(?i)制造商'                      # 制造商
+      - '(?i)厂牌'                        # 厂牌
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # BRAND TYPE (Required)
+  # Brand classification (境内/境外/自主品牌)
+  # ----------------------------------------------------------------------------
+  brand_type:
+    patterns:
+      - '(?i)品牌类型'                     # 品牌类型
+      - '(?i)品牌類型'                     # Traditional Chinese
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # MODEL (Required)
+  # Model number / specification
+  # ----------------------------------------------------------------------------
+  model:
+    patterns:
+      # English
+      - '(?i)^model'                      # Model
+      - '(?i)model.*no'                   # Model No, Model Number
+      - '(?i)^type$'                      # Type
+      - '(?i)^apn$'                       # APN (Arrow Part Number)
+      # Chinese
+      - '(?i)型号'                        # 型号
+      - '(?i)申报规格型号'                 # Declaration Spec Model
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # WEIGHT (Optional)
+  # Net weight per unit or total line weight (KG)
+  # If missing, allocated from packing sheet
+  # ----------------------------------------------------------------------------
+  weight:
+    patterns:
+      # English
+      - '(?i)net\s*w(ei)?ght'             # Net Weight, Net Wt
+      - '(?i)^n\.?w\.?'                   # NW, N.W, N.W.
+      - '(?i)n\.?w\.?.*kg'                # N.W.(kg), NW (KG)
+      - '(?i)net.*kg'                     # Net Weight (KG)
+      # Chinese
+      - '(?i)净重'                        # 净重
+    type: numeric
+    required: false
+
+  # ----------------------------------------------------------------------------
+  # INVOICE NUMBER (Optional)
+  # For combined invoices with multiple inv_no per sheet
+  # Also extracted from header area (rows 1-15) as fallback
+  # ----------------------------------------------------------------------------
+  inv_no:
+    patterns:
+      # English
+      - '(?i)^inv\.?\s*no\.?'             # Inv No, Inv. No.
+      - '(?i)^invoice\s*no'               # Invoice No
+      - '(?i)^invoice\s*number'           # Invoice Number
+      - '(?i)^inv\s*#'                    # Inv #, INV#
+      - '(?i)^invoice'                    # Invoice
+      # Chinese
+      - '(?i)发票号'                      # 发票号
+      - '(?i)发票号码'                     # 发票号码
+    type: string
+    required: false
+
+  # ----------------------------------------------------------------------------
+  # Serial
+  # ----------------------------------------------------------------------------
+  serial:
+    patterns:
+      - '(?i)项号'                            
+    type: string
+    required: false
+
+# ==============================================================================
+# PACKING FIELDS
+# ==============================================================================
+# Column mapping patterns for packing/packing list sheet.
+
+packing_columns:
+
+  # ----------------------------------------------------------------------------
+  # PART NUMBER (Required)
+  # Must match invoice part_no for weight allocation
+  # ----------------------------------------------------------------------------
+  part_no:
+    patterns:
+      # English
+      - '(?i)^part\s*no\.?$'              # Part No, Part No.
+      - '(?i)^part\s*number'              # Part Number
+      - '(?i)^p/n$'                       # P/N
+      - '(?i)^cpn$'                       # Customer Part Number
+      - '(?i)^mpn$'                       # Manufacturer Part Number
+      - '(?i)^customer\s*part\s*number'   # Customer Part Number (full)
+      - '(?i)customer\s*p/n'              # Customer P/N (顺络电子 format)
+      - '(?i)customer\s*part\s*no'        # Customer Part No.
+      # Chinese
+      - '(?i)料号'                        # 料号
+      - '(?i)企业料号'                     # Enterprise Part Number
+      - '(?i)商络料号'                     # Sunlord Part Number
+      - '(?i)备案料号'                     # Filing Part Number
+      - '(?i)我司料号'                     # Our Company Part Number
+    type: string
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # PO NUMBER (Optional)
+  # Fallback matching key when part_no differs between invoice/packing
+  # Some vendors put the matching key (part number) in this column instead
+  # ----------------------------------------------------------------------------
+  po_no:
+    patterns:
+      # English
+      - '(?i)^p\.?o\.?\s*no\.?'           # PO No, P.O. No., PO NO.
+      - '(?i)^po\s*number'                # PO Number
+      - '(?i)^order\s*no'                 # Order No
+      - '(?i)^po#'                        # PO#
+      - '(?i)^purchase\s*order'           # Purchase Order
+      # Chinese
+      - '(?i)采购订单号'                   # Purchase Order Number
+      - '(?i)订单号'                       # Order Number
+    type: string
+    required: false
+
+  # ----------------------------------------------------------------------------
+  # QUANTITY (Required)
+  # Quantity in packing
+  # ----------------------------------------------------------------------------
+  qty:
+    patterns:
+      # English
+      - '(?i)^qty\.?$'                    # Qty, Qty.
+      - '(?i)^quantity'                   # Quantity
+      - '(?i)quantity\s*shipped'          # Quantity Shipped
+      - '(?i)quantity.*\(pcs\)'           # Quantity (PCS)
+      - '(?i)^pcs$'                       # PCS
+      - '(?i)^total\s*qty'                # Total Qty, Total Qty.
+      - '(?i)^qty\s*\('                   # QTY(kpcs), QTY(PCS) (顺络电子 format)
+      # Chinese
+      - '(?i)数量'                        # 数量
+      - '(?i)申报数量'                     # Declaration Quantity
+    type: numeric
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # NET WEIGHT (Required)
+  # Net weight per packing line (KG)
+  # ----------------------------------------------------------------------------
+  nw:
+    patterns:
+      # English
+      - '(?i)net\s*w(ei)?ght'             # Net Weight, Net Wt
+      - '(?i)^n\.?w\.?$'                  # NW, N.W (exact)
+      - '(?i)^net\s*wt\.?$'               # Net WT, Net Wt
+      - '(?i)n\.?w\.?.*kg'                # N.W.(kg), NW (KG), N.W.(KGS)
+      - '(?i)net.*kg'                     # Net Weight (KG)
+      - '(?i)^n\.?w\.?\s*\(kg'            # N.W.(KG), N.W.(KGS) - sub-header format
+      # Chinese
+      - '(?i)净重'                        # 净重
+    type: numeric
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # GROSS WEIGHT (Required)
+  # Total weight including packaging (KG)
+  # ----------------------------------------------------------------------------
+  gw:
+    patterns:
+      # English
+      - '(?i)gross'                       # Gross, Gross WT, Gross Weight
+      - '(?i)^g\.?w\.?'                   # GW, G.W, G.W.
+      - '(?i)g\.?w\.?.*kg'                # G.W.(kg), GW (KG)
+      - '(?i)^g\.?m\.?'                   # GM, G.M, G.M. (Gross Mass)
+      - '(?i)^g\.?m\.?\s*\(kg'            # G.M.(KG), G.M.(KGS) - sub-header format
+      # Chinese
+      - '(?i)毛重'                        # 毛重
+    type: numeric
+    required: true
+
+  # ----------------------------------------------------------------------------
+  # CARTON / PACKAGE (Optional)
+  # Number of cartons/packages
+  # ----------------------------------------------------------------------------
+  pack:
+    patterns:
+      # English
+      - '(?i)^cartons?$'                  # Carton, Cartons
+      - '(?i)^ctns?\.?$'                  # CTN, CTNS, CTN.
+      - '(?i)^pallet$'              # Pack, Package, Packages
+      - '(?i)carton.*id'                  # Carton ID
+      - '(?i)^pkgs?$'                     # Pkg, Pkgs
+      # Chinese
+      - '(?i)件数'                        # 件数
+      - '(?i)箱数'                        # 箱数
+    type: numeric
+    required: false
+
+
+# ==============================================================================
+# INVOICE NUMBER HEADER EXTRACTION
+# ==============================================================================
+# Patterns for extracting invoice number from header area (rows 1-15).
+# Used when inv_no column is not present in the data.
+
+inv_no_cell:
+  # Patterns with capture group - extract value from same cell
+  patterns:
+    - 'INVOICE\s*NO\.?\s*[:：]\s*(\S+)'   # INVOICE NO: 12345
+    - 'INV\.?\s*NO\.?\s*[:：]\s*(\S+)'    # INV NO: 12345, INV. NO.: 12345
+    - '发票号\s*[:：]\s*(\S+)'            # 发票号：12345
+
+  # Label patterns - value is in adjacent cell (right or below)
+  label_patterns:
+    - 'No\.?\s*&\s*Date.*Invoice'         # No. & Date of Invoice
+    - '^INV\.?\s*NO\.?\s*[:：]?$'          # INV NO, INV NO:, INV. NO.:
+    - '(?i)^invoice\s*no\.?\s*[:：]?$'    # Invoice No, Invoice No:
+    - '(?i)^NO\.?[:：]?$'                  # NO, NO., NO: (standalone, value to right)
+
+  # Exclude patterns - reject extracted values matching these (label text captured as value)
+  exclude_patterns:
+    - '(?i)^invoice\s*no\.?[:：]?'        # Values starting with "Invoice No", "Invoice No.", "Invoice No:", etc.
+    - '(?i)^inv\.?\s*no\.?[:：]?$'        # "Inv No", "INV NO:", "Inv. No." (exact match)
+    - '(?i)^invoice\s*date[:：]?$'        # "Invoice Date", "Invoice Date:"
+    - '(?i)^date\s*[:：]'                 # Values starting with "DATE:", "Date:", etc.
+    - '(?i)^date[:：]?$'                  # "Date", "Date:", "Date："
+    - '(?i)^发票号[:：]?$'                # "发票号", "发票号:", "发票号："
+    - '^\d{4}-\d{2}-\d{2}'               # Date values like "2025-12-15" or "2025-12-15 00:00:00"
+    - '\d{4}/\d{1,2}/\d{1,2}'            # Date values like "2025/9/11" or "2025/12/15"
+    - '(?i)^no\.?$'                       # "NO", "NO.", "No", "No." (standalone label)
+    - '^[3-5]\d{4}$'                      # Excel date serials (5-digit: 30000-59999 covers 1982-2063)
+
