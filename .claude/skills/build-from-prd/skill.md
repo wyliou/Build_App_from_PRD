@@ -133,7 +133,7 @@ Log scaffold completion to `build-log.md`.
 
 ## Phase 3: Delegate by Batch
 
-Process batches in dependency order. Launch all modules within a batch **in parallel**.
+Process batches in dependency order. Launch all modules within a batch **as parallel synchronous Task calls in a single message** (do NOT use `run_in_background`). All results return together — no stale notifications, no `TaskOutput` polling needed. Then run the post-batch gate.
 
 ### Model selection
 
@@ -195,7 +195,7 @@ Fix type errors immediately. Common issues: missing imports, wrong return types,
 - Then run a quick **smoke test**: `{test_command} {test_dir} -x --timeout=30` (stop on first failure)
 - Run the **full test suite** only at milestone gates: after the midpoint batch and after the final batch.
 
-Do NOT read TaskOutput on success — the test results are your signal.
+Since subagents run synchronously (not in background), their results are already available when the batch gate starts. Do NOT read individual subagent results on success — the test results are your signal.
 
 **Step 5 — On failure:** Read only failing output. Apply the retry budget (see Recovery).
 
@@ -278,20 +278,20 @@ This log survives context compaction and gives the user (and resumed sessions) f
 1. Never read PRD/architecture in main context — subagents read them.
 2. Never inline interface signatures in delegation prompts — they're in spec files.
 3. Never copy subagent output into file writes — use general-purpose subagents that write files directly.
-4. Never read TaskOutput on success — run tests instead.
+4. Never read subagent results on success — run tests instead.
 5. Never write >30 lines of module code in main context — delegate.
 6. Never read spec files in main context — those are for subagents only.
+7. Never use `run_in_background` for batch subagents — use synchronous parallel calls.
 
-## Notification Handling
+## Subagent Launch Pattern
 
-Background subagents generate completion notifications that may arrive **long after** their batch gate has already passed. This is normal and expected.
+**Always use synchronous parallel Task calls** for batch delegation. Launch all modules in a single message without `run_in_background`. This ensures:
+- All results return together in one response
+- No stale completion notifications cluttering the conversation
+- No need for `TaskOutput` polling or notification acknowledgment
+- The main agent proceeds directly to the batch gate once all subagents finish
 
-**Rules for handling late notifications:**
-1. **After a batch gate passes**, all notifications from that batch's agents are stale. Respond with a single short acknowledgment (e.g., "Earlier batch — already integrated.") and do NOT re-analyze the agent's output.
-2. **Do NOT block** on pending notifications if the batch gate (test suite) already passed.
-3. **Do NOT repeat** the build status summary for each notification. State it once after the gate, then only reference it briefly for late arrivals.
-4. **Batch your waits:** When waiting for a batch's agents, use parallel `TaskOutput` calls with `block=true` to wait for all agents at once, rather than checking one at a time.
-5. **Progress notifications** (agent still running) require no response — simply continue waiting.
+**Do NOT use `run_in_background: true`** for batch module subagents. The main agent has nothing useful to do while waiting (the batch gate requires all modules), so blocking is the correct behavior.
 
 ---
 
