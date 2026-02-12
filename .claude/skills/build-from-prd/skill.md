@@ -11,6 +11,8 @@ You are a **Tech Lead agent**. Subagents write module code/tests. You scaffold, 
 
 **Model rule:** The Phase 1 planning subagent MUST use the same model as the main agent (pass the `model` parameter). Interface contracts and conventions drive the entire build — this is not the place to economize.
 
+**Resumption rule:** If context was compacted or session resumed, read `build-log.md` + task list to reconstruct current phase/batch state before continuing.
+
 ---
 
 ## Phase 1: Discover + Plan + Generate Module Specs
@@ -28,9 +30,9 @@ Find and read: PRD (docs/PRD.md), Architecture (docs/architecture.md), manifest,
 If source code already exists:
 1. Map existing modules and their public interfaces
 2. Identify which modules need modification vs creation
-3. For modified modules: spec file includes an **Existing API** section listing signatures that MUST NOT change (unless the PRD explicitly requires it)
+3. For modified modules: spec file includes an **Existing API** section listing signatures that MUST NOT change (unless PRD explicitly requires it)
 4. Batch plan only includes new/modified modules — leave unchanged modules alone
-5. Note existing conventions (naming, error handling, test patterns) in build-context.md and follow them
+5. Note existing conventions in build-context.md and follow them
 
 If no source code exists (greenfield): proceed normally.
 
@@ -45,11 +47,11 @@ If no source code exists (greenfield): proceed normally.
 | test_command | (e.g., uv run pytest tests/ --tb=short) |
 | lint_command | (e.g., uv run ruff check src/ --fix) |
 | type_check_command | (e.g., uv run pyright src/) |
-| stub_detection_command | (e.g., grep -r "raise NotImplementedError" src/ --include="*.py" -l) |
+| stub_detection_pattern | (e.g., raise NotImplementedError, TODO:IMPLEMENT, panic("not implemented")) |
 | src_dir | (e.g., src/) |
 | test_dir | (e.g., tests/) |
 
-2. **Gate Configuration** — which quality gates are active:
+2. **Gate Configuration** — auto-disable when Build Config command is empty:
 
 | Gate | Active | Reason if disabled |
 |------|--------|--------------------|
@@ -78,7 +80,7 @@ If no source code exists (greenfield): proceed normally.
 - For each module, assign complexity: **simple** (pure functions, no I/O, <5 functions), **moderate** (some I/O or state, 5-10 functions), **complex** (orchestration, many edge cases, >10 functions).
 
 **IMPORTANT — No Interface Contracts in build-plan.md:**
-Do NOT include a full Interface Contracts section. All function signatures belong in per-module spec files only. The orchestrator reads build-plan.md; it does not need signatures (those are for subagents via spec files).
+Do NOT include a full Interface Contracts section. All function signatures belong in per-module spec files only.
 
 ## Write {project_root}/build-context.md with:
 Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas.
@@ -93,9 +95,11 @@ For EVERY module in the Batch Plan, create a file `specs/{module_name}.md` (e.g.
 6. **Test requirements** — 3-5 test cases per function (happy/edge/error) with one-line descriptions
 7. **Gotchas** — any known pitfalls specific to this module
 
-Each spec file should be **under 150 lines** — a self-contained brief that gives a subagent everything it needs without reading the full PRD, build-plan.md, or build-context.md.
+Each spec file should be **under 150 lines**.
 
-Rules: PRD is source of truth. Distill, don't copy raw text. Be exhaustive on per-module signatures in spec files. WRITE ALL FILES and verify they exist.
+**Before finishing:** cross-validate all specs — verify every function in any spec's Imports section matches the Exports of the source spec. Fix mismatches before completing.
+
+Rules: PRD is source of truth. Distill, don't copy. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
 ```
 
 ### After subagent completes
@@ -105,13 +109,9 @@ Rules: PRD is source of truth. Distill, don't copy raw text. Be exhaustive on pe
 3. **Resolve ambiguities** — ask user if needed.
 4. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
-   - If any violation found, re-order: move the depended-on module to an earlier batch, or merge the two batches.
-   - Log any re-ordering to `build-log.md`.
-5. **Cross-validate spec signatures:**
-   - For each spec file's Imports section, verify the referenced function signatures match the Exports section of the source module's spec file.
-   - If mismatches found, resume the Phase 1 subagent to fix the inconsistent specs before proceeding.
-6. **Create task list:** Scaffold → Batch 0..N → Integration Tests → Simplify → Validate → Commit, with `addBlockedBy` ordering.
-7. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
+   - If any violation found, re-order batches. Log to `build-log.md`.
+5. **Create task list:** Scaffold → Batch 0..N → Integration Tests → Simplify → Validate → Commit, with `addBlockedBy` ordering.
+6. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
 
 **Gate:** If PRD or architecture MISSING, stop and ask user.
 
@@ -133,7 +133,7 @@ Log scaffold completion to `build-log.md`.
 
 ## Phase 3: Delegate by Batch
 
-Process batches in dependency order. Launch all modules within a batch **as parallel synchronous Task calls in a single message** (do NOT use `run_in_background`). All results return together — no stale notifications, no `TaskOutput` polling needed. Then run the post-batch gate.
+Process batches in dependency order. Launch all modules within a batch **as parallel synchronous Task calls in a single message**. Do NOT use `run_in_background` — the batch gate needs all results, so blocking is correct. Then run the post-batch gate.
 
 ### Model selection
 
@@ -159,54 +159,45 @@ Constraints:
 - Only modify {module_path} and {test_path}. Do NOT create stub files for other modules.
 - No new dependencies.
 - Run {test_command} {test_path} before finishing.
-- Your implementation must NOT contain `raise NotImplementedError` — fully implement all functions.
-- Do NOT manipulate sys.modules, monkeypatch imports globally, or rely on test execution order.
-- All test fixtures must be function-scoped unless explicitly session-scoped in conftest.py.
+- Your implementation must NOT contain stubs — fully implement all functions.
+- Do NOT manipulate the module/import system globally or rely on test execution order.
+- All test fixtures must be scoped per-test unless explicitly configured otherwise.
 - Tests must pass both in isolation AND when run with the full suite.
 - Do NOT duplicate utility functions that exist in shared modules (check imports in your spec).
 ```
 
-**Why spec files?** Each spec is ~100 lines vs ~1000+ lines for PRD + build-plan + build-context. This cuts subagent input tokens by ~80%, reducing cost and improving focus. If a subagent needs broader context (rare), it can fall back to `build-context.md`.
+**Why spec files?** Each spec is ~100 lines vs ~1000+ for full PRD + plan + context, cutting subagent input tokens by ~80%.
 
 ### Post-batch gate
 
 After ALL subagents in a batch complete:
 
-**Step 1 — Stub detection:** (skip if gate disabled in Build Config)
-```bash
-{stub_detection_command}
-```
-If any source file (not test) contains stubs, the subagent failed to implement it. Re-delegate that module immediately with a stricter prompt emphasizing "fully implement all functions." This counts as attempt 1 of the retry budget (see Recovery).
+**Step 1 — Stub detection:** (skip if gate disabled)
+Search source files for `{stub_detection_pattern}`. If any found, re-delegate that module with stricter prompt. Counts as retry attempt 1.
 
-**Step 2 — Lint gate:** (skip if gate disabled)
+**Step 2 — Lint + type check:** (skip disabled gates; run in parallel — they're independent)
 ```bash
 {lint_command}
-```
-Fix any errors before proceeding. Lint issues caught here are cheaper to fix than debugging test failures.
-
-**Step 3 — Type check gate:** (skip if gate disabled)
-```bash
 {type_check_command}
 ```
-Fix type errors immediately. Common issues: missing imports, wrong return types, signature mismatches between modules built by different subagents. Catching these per-batch is far cheaper than finding 29 errors after the final batch.
+Fix errors before proceeding. Common type-check issues: missing imports, wrong return types, cross-module signature mismatches.
 
-**Step 4 — Test gate:**
+**Step 3 — Test gate:**
 - Run tests for **this batch only**: `{test_command} {batch_test_paths}`
-- Then run a quick **smoke test**: `{test_command} {test_dir} -x --timeout=30` (stop on first failure)
+- Then run a quick **smoke test** in first-failure-exit mode (`-x`, `--bail`, `--failfast` per language)
 - Run the **full test suite** only at milestone gates: after the midpoint batch and after the final batch.
 
-Since subagents run synchronously (not in background), their results are already available when the batch gate starts. Do NOT read individual subagent results on success — the test results are your signal.
+Do NOT read subagent results on success — test results are your signal.
 
-**Step 5 — On failure:** Read only failing output. Apply the retry budget (see Recovery).
+**Step 4 — On failure:** Read only failing output. Apply the retry budget (see Recovery).
 
-**Step 6 — Partial advancement:** If most modules in the batch pass but some fail:
+**Step 5 — Partial advancement:** If most modules pass but some fail:
 1. Mark passing modules as complete.
-2. Fix or re-delegate the failing module(s).
-3. Re-run only the failing module's tests + the smoke test.
-4. Do NOT re-run tests for already-passing modules.
-5. Advance to the next batch once all modules in this batch pass.
+2. Fix or re-delegate failing module(s).
+3. Re-run only failing tests + smoke test.
+4. Advance to next batch once all modules pass.
 
-**Step 7 — Log:** Append batch gate results to `build-log.md` (pass/fail, test count, any re-delegations).
+**Step 6 — Log:** Append batch results to `build-log.md` (pass/fail, test count, any re-delegations).
 
 **Context rule:** Never write >30 lines of module code in main context — delegate instead.
 
@@ -226,9 +217,9 @@ Run full test suite. Fix failures before proceeding. Log to `build-log.md`.
 
 ## Phase 5: Simplify
 
-Run `/code-simplifier` to deduplicate across independently-built modules (duplicate helpers, constants, validation logic).
+Delegate cross-module deduplication to a subagent (or run `/code-simplifier` if available). Target: duplicate helpers, constants, validation logic across independently-built modules.
 
-**Skip condition:** Only skip if the gate is disabled in Build Config, OR the batch plan had a single batch (no parallel subagents). Passing tests do NOT indicate absence of duplication.
+**Skip condition:** Only skip if gate disabled in Build Config, OR the batch plan had a single batch. Passing tests do NOT indicate absence of duplication.
 
 Log simplification results to `build-log.md`.
 
@@ -239,6 +230,7 @@ Log simplification results to `build-log.md`.
 **If test data exists** (and gate is enabled), delegate to a general-purpose subagent:
 ```
 Run real-data-validation. Project root: {root}, PRD: {prd}, test data: {data_dir}, run: {run_cmd}, tests: {test_cmd}.
+Read {project_root}/build-context.md for conventions and expected behavior.
 Fix code bugs directly. Do NOT modify test data. Default assumption: code is wrong.
 For every failure: inspect actual input data + cross-reference PRD before classifying as "data issue".
 Check output for duplicate messages, inconsistent formatting, convention divergence — these are code bugs.
@@ -253,12 +245,6 @@ Log validation results to `build-log.md`.
 
 ---
 
-## Phase 7: Commit
-
-Use `/commit` when user is ready. Do NOT auto-commit.
-
----
-
 ## Build Log
 
 Maintain `{project_root}/build-log.md` throughout all phases. Append entries for:
@@ -267,9 +253,8 @@ Maintain `{project_root}/build-log.md` throughout all phases. Append entries for
 - Failures and how they were resolved (fix directly vs re-delegate)
 - Subagent re-delegations with reasons and attempt number
 - Dependency graph re-orderings
-- Spec signature fixes
 
-This log survives context compaction and gives the user (and resumed sessions) full build history. Keep entries concise — one line per event, details only for failures.
+This log survives context compaction and is the primary recovery artifact for resumed sessions. Keep entries concise — one line per event, details only for failures.
 
 ---
 
@@ -277,21 +262,11 @@ This log survives context compaction and gives the user (and resumed sessions) f
 
 1. Never read PRD/architecture in main context — subagents read them.
 2. Never inline interface signatures in delegation prompts — they're in spec files.
-3. Never copy subagent output into file writes — use general-purpose subagents that write files directly.
+3. Never copy subagent output into file writes — use subagents that write files directly.
 4. Never read subagent results on success — run tests instead.
 5. Never write >30 lines of module code in main context — delegate.
 6. Never read spec files in main context — those are for subagents only.
-7. Never use `run_in_background` for batch subagents — use synchronous parallel calls.
-
-## Subagent Launch Pattern
-
-**Always use synchronous parallel Task calls** for batch delegation. Launch all modules in a single message without `run_in_background`. This ensures:
-- All results return together in one response
-- No stale completion notifications cluttering the conversation
-- No need for `TaskOutput` polling or notification acknowledgment
-- The main agent proceeds directly to the batch gate once all subagents finish
-
-**Do NOT use `run_in_background: true`** for batch module subagents. The main agent has nothing useful to do while waiting (the batch gate requires all modules), so blocking is the correct behavior.
+7. On context compaction: read `build-log.md` + task list to reconstruct state before continuing.
 
 ---
 
@@ -299,30 +274,30 @@ This log survives context compaction and gives the user (and resumed sessions) f
 
 ### Retry Budget
 
-Each module gets a maximum of **2 re-delegation attempts** (3 total attempts including the original).
+Each module gets a maximum of **2 re-delegation attempts** (3 total including original).
 
 - **Attempt 1** (original): Standard delegation prompt.
-- **Attempt 2** (first retry): Add explicit failure context from the previous attempt. Emphasize the specific issue (e.g., "Previous attempt left stubs — fully implement all functions").
-- **Attempt 3** (final retry): Include the failing test output directly in the prompt. Use `opus` model regardless of complexity rating.
-- **After 3 failures**: Escalate to user with diagnostic info (module name, all 3 failure reasons, spec file path). Do NOT silently retry further.
+- **Attempt 2** (first retry): Add explicit failure context. Emphasize the specific issue.
+- **Attempt 3** (final retry): Include failing test output in prompt. Use `opus` regardless of complexity.
+- **After 3 failures**: Escalate to user with diagnostic info (module name, all 3 failure reasons, spec file path).
 
 ### Recovery Table
 
 | Problem | Action |
 |---------|--------|
 | Subagent returns with failing tests | Read failing output only, apply retry budget |
-| Subagent left a stub (`NotImplementedError`) | Re-delegate with explicit "fully implement" constraint (counts as retry) |
-| Subagent created stub files for other modules | Delete the stubs, re-delegate with "only modify your assigned files" |
+| Subagent left stubs | Re-delegate with explicit "fully implement" constraint (counts as retry) |
+| Subagent created files for other modules | Delete the extra files, re-delegate with stricter scope |
 | Cross-module signature mismatch | Fix implementing module to match spec file |
 | Missing dependency module | Scaffold incomplete — create init/export, re-delegate |
 | Out-of-scope file changes | Revert, re-delegate with stricter constraints |
-| Tests pass individually, fail together | Shared mutable state — check for sys.modules hacks, global state, test ordering deps |
-| Lint errors after batch | Fix directly (usually unused imports or style) — fast to resolve |
+| Tests pass individually, fail together | Shared mutable state — check for global state, module system hacks, test ordering deps |
+| Lint errors after batch | Fix directly (usually unused imports or style) |
 | Type check errors after batch | Fix signature mismatches to match spec files |
 | Validation finds code bugs | Fix directly, re-run validation |
 | Circular dependency | Move shared types to core module |
 | Ambiguous requirement | Ask user — do not guess |
-| Duplicate code across subagents | Run `/code-simplifier` (Phase 5) |
+| Duplicate code across subagents | Phase 5 deduplication |
 | Context getting large | Delegate remaining work to fewer, larger subagents |
 | Spec file missing for a module | Resume Phase 1 subagent to generate it |
 | Dependency graph violation | Re-order batches per Phase 1 step 4, log to build-log.md |
