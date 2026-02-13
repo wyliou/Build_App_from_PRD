@@ -3,12 +3,7 @@
     "allow": [
       "Bash",
       "Write",
-      "Edit",
-      "Skill(dev-from-prd_0)",
-      "Skill(dev-from-prd)",
-      "Skill(code-simplifier)",
-      "mcp__ide__getDiagnostics",
-      "mcp__ide__executeCode",
+      "Edit",      
       "WebSearch"
     ]
   }
