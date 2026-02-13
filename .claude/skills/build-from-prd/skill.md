@@ -11,7 +11,7 @@ You are a **Tech Lead agent**. Subagents write module code/tests. You scaffold, 
 
 **Model rule:** The Phase 1 planning subagent MUST use the same model as the main agent (pass the `model` parameter). Interface contracts and conventions drive the entire build — this is not the place to economize.
 
-**Resumption rule:** If context was compacted or session resumed, read `build-log.md` + task list to reconstruct current phase/batch state before continuing.
+**Resumption rule:** If context was compacted or session resumed (including across sessions), read `build-log.md` + task list to reconstruct current phase/batch state before continuing. The build-log tracks per-module status, so partially-completed batches can resume without re-delegating passing modules.
 
 ---
 
@@ -51,9 +51,12 @@ If no source code exists (greenfield): proceed normally.
 | lint_tool | (e.g., ruff, eslint, golangci-lint) — the package name to install as dev dep |
 | type_check_command | (e.g., uv run pyright src/) |
 | type_check_tool | (e.g., pyright, tsc) — the package name to install as dev dep |
+| run_command | (e.g., uv run python -m myapp, node dist/index.js, go run ./cmd/app) |
 | stub_detection_pattern | (e.g., raise NotImplementedError, TODO:IMPLEMENT, panic("not implemented")) |
 | src_dir | (e.g., src/) |
 | test_dir | (e.g., tests/) |
+| format_command | (e.g., uv run ruff format src/, npx prettier --write src/) — leave empty if lint tool handles formatting |
+| format_tool | (e.g., ruff, prettier, gofmt) — omit if same as lint_tool |
 
 2. **Gate Configuration** — auto-disable when Build Config command is empty:
 
@@ -62,6 +65,7 @@ If no source code exists (greenfield): proceed normally.
 | stub_detection | yes/no | |
 | lint | yes/no | |
 | type_check | yes/no | (disable for dynamically typed languages without type checker) |
+| format | yes/no | (disable if no formatter or lint_tool handles formatting) |
 | integration_tests | yes/no | |
 | simplification | yes/no | (disable for single-batch builds) |
 | validation | yes/no | (disable if no test data) |
@@ -110,12 +114,13 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 1. **Verify files exist** — resume subagent if any are missing.
 2. **Read `build-plan.md`**. **Spot-check** FRs section of 2-3 complex specs — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation.
 3. **Verify verbatim outputs** — grep the PRD for quoted strings, format examples, and message templates (e.g., `"SUCCESS"`, `"FAILED"`, log format patterns). For each, verify it appears in at least one spec file's **Verbatim Outputs** section. If any user-visible format string from the PRD is missing from all specs, resume the subagent to add it.
-4. **Resolve ambiguities** — ask user if needed.
-5. **Validate dependency graph:**
+4. **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file's FRs section. If any FR is unassigned, resume the subagent to assign it to the appropriate module.
+5. **Resolve ambiguities** — ask user if needed.
+6. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
    - If any violation found, re-order batches. Log to `build-log.md`.
-6. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
-7. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
+7. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
+8. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
 
 **Gate:** If PRD or architecture MISSING, stop and ask user.
 
@@ -127,7 +132,7 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 
 **For existing codebases:** Skip or minimally extend — only create new directories/files needed for new modules. Do NOT restructure existing code. Reuse existing test framework, fixtures, and configuration. If the project already has linting/type-checking config, use it.
 
-**Dev tooling:** Install lint and type-check tools listed in Build Config (`lint_tool`, `type_check_tool`) as dev dependencies during scaffold. Do NOT defer this to batch gates — missing tools cause every batch to fail on the same issue.
+**Dev tooling:** Install lint, type-check, and format tools listed in Build Config (`lint_tool`, `type_check_tool`, `format_tool`) as dev dependencies during scaffold. Do NOT defer this to batch gates — missing tools cause every batch to fail on the same issue.
 
 **Shared utilities:** Implement all functions listed in the **Shared Utilities** section of `build-plan.md`. These are typically small (< 10 lines each) pure functions needed by multiple modules. Implementing them now prevents subagents from independently reimplementing them.
 
@@ -135,6 +140,8 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 - Detect the OS from the runtime environment.
 - **Windows:** Ensure UTF-8 encoding for all file I/O (stdout/stderr reconfiguration if needed). Use `pathlib` for all path handling. Add BOM markers to output files if the PRD requires Windows console compatibility.
 - **All platforms:** Use `pathlib` for file paths (not `os.path` string manipulation). Avoid shell-specific syntax in scripts. Test commands should work cross-platform.
+
+**Delegation:** For large projects (>15 modules), delegate scaffold to a subagent to save main context. Provide the Shared Utilities signatures from `build-plan.md` and the directory structure in the prompt.
 
 **Gate:** Test collection dry-run (e.g., `pytest --collect-only`) must succeed with zero errors.
 
@@ -188,8 +195,12 @@ After ALL subagents in a batch complete:
 **Step 1 — Stub detection:** (skip if gate disabled)
 Search source files for `{stub_detection_pattern}`. If any found, re-delegate that module with stricter prompt. Counts as retry attempt 1.
 
-**Step 2 — Lint + type check:** (skip disabled gates; run in parallel — they're independent)
+**Step 1.5 — Scope check:**
+Run `git diff --name-only` to list all files modified by this batch's subagents. Any file NOT in the batch's expected `{module_path}` or `{test_path}` list is out-of-scope. Review: additions to shared/core modules (new types, constants) are often correct — accept and note in build-log. Modifications to other modules' existing logic must be reverted and the subagent re-delegated with stricter scope.
+
+**Step 2 — Format + lint + type check:** (skip disabled gates; run in parallel — they're independent)
 ```bash
+{format_command}
 {lint_command}
 {type_check_command}
 ```
@@ -234,17 +245,44 @@ Run integration tests and cross-module simplification **in parallel** — they a
 
 ### Integration Tests (subagent)
 
-Tests use real modules (no mocking internals). The subagent should also read the PRD (`{prd_path}`) to understand expected end-to-end behavior and output formats:
+Subagent prompt:
+```
+Write integration tests in {test_dir}/test_integration.py (or equivalent).
+Read {prd_path} for expected end-to-end behavior and output formats.
+Read {project_root}/build-plan.md for module boundaries and the pipeline flow.
+Read {project_root}/build-context.md for conventions.
+Use real modules — no mocking of internal components.
 
-1. **Boundary tests** — wire 2-3 modules, pass realistic data, verify output
-2. **Full pipeline test** — synthetic input end-to-end, verify final output and that every pipeline stage executes
-3. **Error propagation test** — trigger early error, verify it surfaces correctly
-4. **Pipeline assumption tests** — empty upstream output, maximal output, duplicated entries
-5. **Output format tests** — verify end-to-end output matches PRD-specified formats (use Verbatim Outputs from specs as reference)
+Write tests in these categories:
+1. **Boundary tests** (3-5) — wire 2-3 adjacent modules, pass realistic data, verify output. Focus on data handoff points between subsystems.
+2. **Full pipeline tests** (2-3) — synthetic input end-to-end, verify final output structure and content. Verify every pipeline stage executes (not just the final output).
+3. **Error propagation** (3-5) — trigger errors at different pipeline stages, verify they surface correctly to the caller with proper error codes/messages.
+4. **Edge cases** (3-5) — empty input, minimal valid input, maximal input, duplicate entries, missing optional fields.
+5. **Output format** (2-3) — verify end-to-end output matches PRD-specified formats. Check field order, delimiters, headers, encoding.
+
+Run {test_command} {test_dir}/test_integration.py before finishing.
+```
 
 ### Simplify (subagent)
 
 Delegate cross-module deduplication to a subagent (or run `/code-simplifier` if available). Target: duplicate helpers, constants, validation logic across independently-built modules.
+
+Subagent prompt (if not using `/code-simplifier`):
+```
+Simplify and deduplicate across the codebase at {src_dir}.
+Read {project_root}/build-plan.md for module boundaries.
+
+Look for:
+1. **Duplicate constants** — same magic numbers, keyword lists, or threshold values in 2+ modules. Extract to a shared constants module.
+2. **Duplicate helper functions** — similar utility functions across modules. Extract to a shared utils module.
+3. **Copy-pasted logic** — same algorithm implemented slightly differently in 2+ places. Consolidate into one.
+
+Constraints:
+- Do NOT change any public API signatures (function names, parameters, return types).
+- Do NOT change behavior — only restructure. All existing tests must still pass.
+- Prefer extracting to existing shared/core modules over creating new files.
+- Run {test_command} after changes to verify nothing breaks.
+```
 
 **Skip condition:** Only skip if gate disabled in Build Config, OR the batch plan had a single batch. Passing tests do NOT indicate absence of duplication.
 
@@ -256,36 +294,18 @@ Run the **full test suite**. Fix any failures before proceeding. Log both result
 
 ## Phase 5: Validate
 
-**If test data exists** (and gate is enabled), delegate to a general-purpose subagent with the full real-data-validation process:
+**If test data exists** (and gate is enabled), delegate to a **general-purpose subagent** that invokes the `/real-data-validation` skill. The subagent MUST use the same model as the main agent (pass the `model` parameter) — validation requires deep PRD cross-referencing and code fixes, which need full capability.
+
+Subagent prompt:
 ```
-Run real-data-validation. Follow the 5-step process: Baseline, Run Against All Data, Investigate Non-Ideal Results, Fix and Re-run, Report.
+Invoke the /real-data-validation skill using the Skill tool, then follow its instructions to completion.
 
 Project root: {root}
-PRD: {prd_path}
-Architecture: {architecture_path}
-Test data: {data_dir}
-Run command: {run_cmd}
-Test command: {test_cmd}
 
-Read {project_root}/build-context.md for conventions and expected behavior.
-
-Key principles:
-- Default assumption: code is wrong, not data.
-- Group failures by similarity before investigating — one representative per group.
-- Scan for convention/ownership bugs first (duplicate messages, inconsistent formatting, responsibility overlap between modules).
-- Fix likely code bugs IMMEDIATELY before investigating uncertain cases (fix-first loop). One fix often resolves multiple groups.
-- For every failure: inspect actual input data at PRD-specified locations + cross-reference PRD algorithm (search ranges, patterns, thresholds) before classifying as "data issue".
-- Cross-reference failures against PRD directly — specs may have lost parameters during distillation.
-- Update tests that encoded buggy behavior after fixing code bugs.
-- Iterate for up to 3 rounds until stable (no new code bugs found in a round).
-- Stop early if all results are ideal, or only legitimate data issues remain.
-
-Write report to {project_root}/validation-report.md with:
-- Round-over-round delta table showing improvement trajectory
-- Every code bug found: symptom, root cause, fix, impact count
-- Every non-ideal result: input, outcome, classification, explanation
-- Every test update with rationale
-- Recommendations for remaining data issues and PRD gaps
+Build artifacts available (the skill knows how to use these):
+- {root}/build-plan.md — Build Config with test_command, language, package_manager
+- {root}/build-context.md — conventions, side-effect ownership, known gotchas
+- {root}/specs/ — per-module spec files with FR mappings and verbatim outputs
 ```
 
 After: read `validation-report.md`. If code changes were made, re-run full test suite. Relay report to user.
@@ -294,19 +314,27 @@ After: read `validation-report.md`. If code changes were made, re-run full test 
 
 Log validation results to `build-log.md`.
 
+### Completion
+
+After validation (or final test suite if no test data):
+
+1. **Summary to user** — report final test count, validation results (if applicable), and any remaining issues or recommendations.
+2. **Build artifact cleanup** — inform the user that `build-plan.md`, `build-context.md`, `specs/`, and `validation-round-*.log` are build artifacts. Ask whether to keep them (useful for future reference and resumption) or clean up.
+3. **Mark all tasks complete** in the task list.
+
 ---
 
 ## Build Log
 
 Maintain `{project_root}/build-log.md` throughout all phases. Append entries for:
 - Phase transitions (with phase name)
-- Batch gate results (pass/fail, test count, type errors found)
+- Batch gate results (pass/fail, test count, type errors found, **per-module pass/fail**)
 - Convention compliance gate results
 - Failures and how they were resolved (fix directly vs re-delegate)
 - Subagent re-delegations with reasons and attempt number
 - Dependency graph re-orderings
 
-This log survives context compaction and is the primary recovery artifact for resumed sessions. Keep entries concise — one line per event, details only for failures.
+This log survives context compaction and is the primary recovery artifact for both mid-session and cross-session resumption. Keep entries concise — one line per event, details only for failures. Include per-module status in batch entries so partially-completed batches can resume without re-delegating passing modules.
 
 ---
 
@@ -339,7 +367,8 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 |---------|--------|
 | Subagent returns with failing tests | Read failing output only, apply retry budget |
 | Subagent left stubs | Re-delegate with explicit "fully implement" constraint (counts as retry) |
-| Out-of-scope changes or extra files created | Revert/delete, re-delegate with stricter scope |
+| Out-of-scope changes (other module logic) | Revert changes to other modules, re-delegate with stricter scope |
+| Out-of-scope additions (shared types/constants) | Review — if type belongs in core/shared, accept and note in build-log; otherwise revert |
 | Subagent redefined types from imports | Delete duplicates, add imports, fix tests — append "no type redefinition" reminder to build-context.md |
 | Cross-module signature mismatch | Fix implementing module to match spec file |
 | Missing dependency module | Scaffold incomplete — create init/export, re-delegate |

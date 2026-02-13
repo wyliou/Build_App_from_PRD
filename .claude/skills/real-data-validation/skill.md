@@ -7,7 +7,7 @@ description: Validate a build against real test data and PRD requirements
 
 Validate a completed implementation against real test data and PRD requirements. Investigates every non-ideal result, fixes code bugs, and re-runs until stable.
 
-Can be invoked standalone or delegated to by another skill (e.g., `implement-from-prd`, `quick-build`).
+Can be invoked standalone or delegated to by another skill (e.g., `build-from-prd`, `quick-build`).
 
 ## Inputs
 
@@ -22,11 +22,19 @@ Locate and read:
 
 STOP if PRD, source code, or test data is missing — report what's absent.
 
+### Build artifacts (when delegated from `build-from-prd` or `quick-build`)
+
+Check the project root for these files — if they exist, use them instead of re-detecting:
+
+- **`build-plan.md`**: Contains a **Build Config** table with pre-computed `test_command`, `run_command`, `src_dir`, `test_dir`, language, and package manager. Use these directly in Step 1 instead of re-detecting the stack.
+- **`build-context.md`**: Contains project conventions, side-effect rules, error handling patterns, and known gotchas. Read this for context during investigation — it explains which module owns which side-effect (logging, file I/O), which prevents misclassifying ownership bugs.
+- **`specs/`**: Per-module spec files with FR mappings, exports, and verbatim outputs. Useful for understanding module boundaries during investigation, but always cross-reference the **PRD directly** — specs may have lost parameters during distillation.
+
 ---
 
 ## Step 1: Baseline
 
-1. **Detect the stack** from the project manifest. Determine the test command, run command, and dependency isolation method.
+1. **Detect the stack.** If `build-plan.md` exists, read the **Build Config** table for pre-computed commands (test_command, language, package_manager, src_dir, test_dir). Otherwise, detect from the project manifest. Determine the test command, run command, and dependency isolation method.
 2. **Run the full test suite.** Record the pass/fail count.
    - If tests fail, fix them before proceeding. Do not investigate test data with a broken test suite.
 3. **Identify the entry point** — how to execute the application against test data:
@@ -69,7 +77,7 @@ STOP if PRD, source code, or test data is missing — report what's absent.
 - Flag same condition reported with different wording from different modules.
 - Flag inconsistent message formatting (different prefixes, capitalization, templates).
 
-These are **convention divergence or responsibility overlap bugs** — two modules independently detecting/reporting the same condition. Classify and fix as code bugs before investigating data failures.
+These are **convention divergence or responsibility overlap bugs** — two modules independently detecting/reporting the same condition. If `build-context.md` exists, use its **Side-Effect Ownership** rules to quickly identify which module is the rightful owner. Classify and fix as code bugs before investigating data failures.
 
 ### Phase B: Quick triage (main agent)
 
