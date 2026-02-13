@@ -600,6 +600,7 @@ AutoConvert/
   - **With unit suffix:** `7CTNS`, `10CTN`, `30箱`, `50件`, `12托`, `5PCS`
   - **With unit suffix and additional text:** `30箱(兩托)`, `7CTNS (2 pallets)` - extract leading number before unit
   - **Embedded in PLT indicator:** `7 PLT.G`, `PLT.G 5`, `1 PLT.G`
+  - **Pallet range:** `PLT#1(1~34)` → extract pallet count (1), i.e. extract the first number from the string
   - **Embedded in Chinese text:** `共7托`, `172件`, `包装种类：再生托板7托`
 
   The system extracts the leading number followed by optional unit suffix, ignoring any trailing text (e.g., `30箱(兩托)` → `30`).
@@ -609,7 +610,7 @@ AutoConvert/
   - **Priority 1:** Packet/Carton Label - search total row +1 to +3 rows below
     - **Labels:** "件数", "件數"
     - **Value extraction (IMPORTANT - search relative to label position):**
-      1. **Adjacent value:** Look for value in the cell immediately to the right of the label (label_col + 1), then try up to 3 more columns to the right. Parse with unit suffix stripping (e.g., `7CTNS` → `7`)
+      1. **Adjacent value:** Look for value in the cell immediately to the right of the label (label_col + 1), then try up to 3 more columns to the right. Parse using ALL supported formats above — not just unit suffixes (e.g., `7CTNS` → `7`, `PLT#1(1~34)` → `1`)
       2. **Embedded value:** If no adjacent value found, extract number from the label cell itself (e.g., "件数: 7" → 7)
     - **Note:** Do NOT search in fixed columns like NW column; always search relative to where the label was found
   - **Priority 2:** "PLT.G"/"PLT. G" Indicator - search at `total_row - 1` or `total_row - 2`

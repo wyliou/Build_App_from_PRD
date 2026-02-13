@@ -90,14 +90,14 @@ For EVERY module in the Batch Plan, create a file `specs/{module_name}.md` (e.g.
 1. **Module path** and **test path**
 2. **FRs** this module implements (distilled requirements, not raw PRD text)
 3. **Exports** — exact function/class signatures with param types, return types, and docstring summaries
-4. **Imports** — what this module imports from other modules (module path + symbol names + their signatures)
+4. **Imports** — what this module imports (module path + symbol names + **which functions/methods it will call** from each import)
 5. **Side-effect rules** — what this module owns (logging, file I/O) and what it must NOT do
 6. **Test requirements** — 3-5 test cases per function (happy/edge/error) with one-line descriptions
 7. **Gotchas** — any known pitfalls specific to this module
 
 Each spec file should be **under 150 lines**.
 
-**Before finishing:** cross-validate all specs — verify every function in any spec's Imports section matches the Exports of the source spec. Fix mismatches before completing.
+**Before finishing:** cross-validate all specs bidirectionally — every Import must resolve to a source Export, AND every exported function/method must appear as a used Import in ≥1 consumer spec (orphans = missing wiring). Fix all issues before completing.
 
 Rules: PRD is source of truth. Distill, don't copy. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
 ```
@@ -153,17 +153,17 @@ Module: {module_path} | Tests: {test_path}
 
 Read {project_root}/specs/{module_spec}.md for your complete module specification (requirements, exports, imports, side-effects, test cases, gotchas). This is your primary reference.
 Also read {project_root}/build-context.md for project conventions if needed.
-EXPORTS must match the spec exactly. IMPORTS from lower batches are implemented — import directly, do NOT mock.
+EXPORTS must match the spec exactly. IMPORTS from lower batches are implemented — import and CALL every listed function/method, do NOT mock.
 
 Constraints:
 - Only modify {module_path} and {test_path}. Do NOT create stub files for other modules.
-- No new dependencies.
+- No new dependencies. Do NOT duplicate utility functions that exist in shared modules (check imports in your spec).
 - Run {test_command} {test_path} before finishing.
 - Your implementation must NOT contain stubs — fully implement all functions.
 - Do NOT manipulate the module/import system globally or rely on test execution order.
 - All test fixtures must be scoped per-test unless explicitly configured otherwise.
 - Tests must pass both in isolation AND when run with the full suite.
-- Do NOT duplicate utility functions that exist in shared modules (check imports in your spec).
+- Tests must verify the FR acceptance criteria from your spec, not just exercise your implementation logic.
 ```
 
 **Why spec files?** Each spec is ~100 lines vs ~1000+ for full PRD + plan + context, cutting subagent input tokens by ~80%.
@@ -180,7 +180,7 @@ Search source files for `{stub_detection_pattern}`. If any found, re-delegate th
 {lint_command}
 {type_check_command}
 ```
-Fix errors before proceeding. Common type-check issues: missing imports, wrong return types, cross-module signature mismatches.
+Fix errors before proceeding. If a fix pattern recurs across modules, append it to `build-context.md` so future batch subagents avoid it.
 
 **Step 3 — Test gate:**
 - Run tests for **this batch only**: `{test_command} {batch_test_paths}`
@@ -207,7 +207,7 @@ Do NOT read subagent results on success — test results are your signal.
 
 Delegate to a subagent. Tests use real modules (no mocking internals):
 1. **Boundary tests** — wire 2-3 modules, pass realistic data, verify output
-2. **Full pipeline test** — synthetic input end-to-end, verify final output
+2. **Full pipeline test** — synthetic input end-to-end, verify final output and that every pipeline stage executes
 3. **Error propagation test** — trigger early error, verify it surfaces correctly
 4. **Pipeline assumption tests** — empty upstream output, maximal output, duplicated entries
 
@@ -287,13 +287,13 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 |---------|--------|
 | Subagent returns with failing tests | Read failing output only, apply retry budget |
 | Subagent left stubs | Re-delegate with explicit "fully implement" constraint (counts as retry) |
-| Subagent created files for other modules | Delete the extra files, re-delegate with stricter scope |
+| Out-of-scope changes or extra files created | Revert/delete, re-delegate with stricter scope |
 | Cross-module signature mismatch | Fix implementing module to match spec file |
 | Missing dependency module | Scaffold incomplete — create init/export, re-delegate |
-| Out-of-scope file changes | Revert, re-delegate with stricter constraints |
+| Exported function never called in pipeline | Spec Imports incomplete — add missing calls, re-delegate consumer |
 | Tests pass individually, fail together | Shared mutable state — check for global state, module system hacks, test ordering deps |
-| Lint errors after batch | Fix directly (usually unused imports or style) |
-| Type check errors after batch | Fix signature mismatches to match spec files |
+| Lint / type errors after batch | Fix directly; for signature mismatches, match spec files |
+| Unit tests pass but real data fails | Subagent tested implementation, not spec — fix code in Phase 6 |
 | Validation finds code bugs | Fix directly, re-run validation |
 | Circular dependency | Move shared types to core module |
 | Ambiguous requirement | Ask user — do not guess |
