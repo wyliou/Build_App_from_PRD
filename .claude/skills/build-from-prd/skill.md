@@ -66,11 +66,7 @@ If no source code exists (greenfield): proceed normally.
 4. **FR to Subsystem Map** — `FR_xx: subsystem — acceptance criterion`
 5. **Side-Effect Ownership** — who logs what, non-owners must NOT
 6. **Conventions** — decisions multiple modules must agree on
-7. **Shared Utilities** — functions/constants needed by 2+ modules. For each:
-   - Function signature (name, params, return type)
-   - Placement (e.g., core/numeric.py, shared/helpers.py)
-   - Which modules will import it
-   - Brief implementation note (usually <10 lines each)
+7. **Shared Utilities** — functions/constants needed by 2+ modules. For each: signature, placement (module path), consumers, and brief implementation note (<10 lines each)
 8. **Batch Plan** — modules grouped by dependency order; each with: path, test_path, FRs, exports, imports, **complexity** (simple/moderate/complex)
 9. **Ambiguities** — unclear/contradictory requirements
 
@@ -88,24 +84,24 @@ Stack, error handling strategy, logging pattern, all conventions, all side-effec
 ## Write per-module spec files to {project_root}/specs/
 For EVERY module in the Batch Plan, create a file `specs/{module_name}.md` (e.g., `specs/extraction_invoice.md`) containing ONLY:
 1. **Module path** and **test path**
-2. **FRs** this module implements (distilled requirements, not raw PRD text)
+2. **FRs** this module implements — distill prose but preserve ALL concrete parameters verbatim (thresholds, search ranges, patterns, priority orders, format examples)
 3. **Exports** — exact function/class signatures with param types, return types, and docstring summaries
 4. **Imports** — what this module imports (module path + symbol names + **which functions/methods it will call** from each import)
 5. **Side-effect rules** — what this module owns (logging, file I/O) and what it must NOT do
 6. **Test requirements** — 3-5 test cases per function (happy/edge/error) with one-line descriptions
 7. **Gotchas** — any known pitfalls specific to this module
 
-Each spec file should be **under 150 lines**.
+Each spec file should be **under 200 lines**.
 
 **Before finishing:** cross-validate all specs bidirectionally — every Import must resolve to a source Export, AND every exported function/method must appear as a used Import in ≥1 consumer spec (orphans = missing wiring). Fix all issues before completing.
 
-Rules: PRD is source of truth. Distill, don't copy. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
+Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
 ```
 
 ### After subagent completes
 
 1. **Verify files exist** — resume subagent if any are missing.
-2. **Read `build-plan.md`** (but NOT specs — those are for subagents).
+2. **Read `build-plan.md`**. **Spot-check** FRs section of 2-3 complex specs — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation.
 3. **Resolve ambiguities** — ask user if needed.
 4. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
@@ -163,10 +159,9 @@ Constraints:
 - Do NOT manipulate the module/import system globally or rely on test execution order.
 - All test fixtures must be scoped per-test unless explicitly configured otherwise.
 - Tests must pass both in isolation AND when run with the full suite.
-- Tests must verify the FR acceptance criteria from your spec, not just exercise your implementation logic.
+- Tests must verify FR acceptance criteria from your spec (including concrete parameters: ranges, thresholds, patterns), not just exercise implementation logic.
+- For complex modules: also skim the PRD sections referenced in your spec's FRs to catch parameters the spec may have summarized.
 ```
-
-**Why spec files?** Each spec is ~100 lines vs ~1000+ for full PRD + plan + context, cutting subagent input tokens by ~80%.
 
 ### Post-batch gate
 
@@ -180,7 +175,7 @@ Search source files for `{stub_detection_pattern}`. If any found, re-delegate th
 {lint_command}
 {type_check_command}
 ```
-Fix errors before proceeding. If a fix pattern recurs across modules, append it to `build-context.md` so future batch subagents avoid it.
+Fix errors before proceeding. If a fix pattern appears in ≥2 modules, IMMEDIATELY append it (with code example) to `build-context.md` so future batches avoid it.
 
 **Step 3 — Test gate:**
 - Run tests for **this batch only**: `{test_command} {batch_test_paths}`
@@ -233,6 +228,7 @@ Run real-data-validation. Project root: {root}, PRD: {prd}, test data: {data_dir
 Read {project_root}/build-context.md for conventions and expected behavior.
 Fix code bugs directly. Do NOT modify test data. Default assumption: code is wrong.
 For every failure: inspect actual input data + cross-reference PRD before classifying as "data issue".
+Cross-reference failures against PRD directly — specs may have lost parameters during distillation.
 Check output for duplicate messages, inconsistent formatting, convention divergence — these are code bugs.
 Write report to {project_root}/validation-report.md.
 ```
@@ -260,12 +256,12 @@ This log survives context compaction and is the primary recovery artifact for re
 
 ## Context Budget Rules
 
-1. Never read PRD/architecture in main context — subagents read them.
+1. Avoid reading PRD/architecture in main context — subagents read them. Exception: targeted sections during Phase 6 debugging.
 2. Never inline interface signatures in delegation prompts — they're in spec files.
 3. Never copy subagent output into file writes — use subagents that write files directly.
 4. Never read subagent results on success — run tests instead.
 5. Never write >30 lines of module code in main context — delegate.
-6. Never read spec files in main context — those are for subagents only.
+6. Minimize reading specs in main context — only spot-check FRs section during Phase 1 verification.
 7. On context compaction: read `build-log.md` + task list to reconstruct state before continuing.
 
 ---
@@ -290,7 +286,7 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 | Out-of-scope changes or extra files created | Revert/delete, re-delegate with stricter scope |
 | Cross-module signature mismatch | Fix implementing module to match spec file |
 | Missing dependency module | Scaffold incomplete — create init/export, re-delegate |
-| Exported function never called in pipeline | Spec Imports incomplete — add missing calls, re-delegate consumer |
+| Implementation diverges from PRD | Spec lossy — verify spec FRs against PRD, fix spec, re-delegate |
 | Tests pass individually, fail together | Shared mutable state — check for global state, module system hacks, test ordering deps |
 | Lint / type errors after batch | Fix directly; for signature mismatches, match spec files |
 | Unit tests pass but real data fails | Subagent tested implementation, not spec — fix code in Phase 6 |

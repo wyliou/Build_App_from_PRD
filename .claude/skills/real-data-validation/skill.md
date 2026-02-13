@@ -78,12 +78,12 @@ For each group, do a **lightweight check** in main context before committing to 
 1. **Read the error message.** Identify the function and line where the non-ideal outcome originates.
 2. **Read the failing function** (~50 lines around the failure site). Do NOT trace the entire pipeline.
 3. **Quick data check** — write one **batch diagnostic script per group** (not per file). The script should process ALL files in the group and print a summary table. This is faster than individual scripts and reveals whether the issue is consistent across the group.
-   - Stack-agnostic framing: write a minimal script/command that reads the raw input at the failure point and prints the actual values. Use whatever tool fits the stack (openpyxl for Excel, jq for JSON, DOM parser for XML, curl for APIs, etc.).
-   - Print values in **related fields** too — the data may be present but in a different field than the code expects.
-4. **Quick PRD check** — search (grep) the PRD for the failing field name and error code. Look for fallbacks, overrides, defaults, phase ordering.
+   - Stack-agnostic framing: write a minimal script that reads the raw input at **both** the code's failure point **and** PRD-specified locations. Use whatever tool fits the stack (openpyxl for Excel, jq for JSON, DOM parser for XML, curl for APIs, etc.).
+   - Print values in **related fields** and at **PRD-specified locations** — the data may exist where the PRD says to look, not where the code currently searches.
+4. **Quick PRD check** — **read** the relevant PRD section (not just grep). Compare the PRD's specified algorithm (search ranges, patterns, columns, thresholds) against the code's actual implementation. Also check for fallbacks, overrides, defaults.
 
 After quick triage, classify each group into one of:
-- **Likely code bug** — PRD defines behavior the code doesn't implement. Proceed to fix immediately.
+- **Likely code bug** — PRD defines behavior the code doesn't implement, or implements with wrong parameters (search ranges, patterns). Fix immediately.
 - **Likely data issue** — input genuinely lacks required data. Needs confirmation but low priority.
 - **Uncertain** — needs deep investigation to determine.
 
@@ -98,18 +98,18 @@ Only proceed to deep investigation for groups that survive the re-run.
 For groups still unresolved after the fix-first loop, investigate the representative thoroughly:
 
 1. **Inspect the actual input data** with a diagnostic script (if not already done in Phase B).
-2. **Cross-reference the PRD** — search the PRD for **every mention** of the failing field or error code. Check for:
+2. **Cross-reference the PRD** — **read** the full PRD section for the failing feature (not just grep for keywords). Check for:
+   - **Algorithm match** — do the code's search ranges, patterns, column limits, and thresholds match the PRD? Parameter mismatches are code bugs even when "not found" seems like a data issue.
    - **Fallbacks or overrides** — does the PRD define an alternative source, default, or override for this field?
-   - **Phase ordering** — does the PRD expect this to be handled in a different processing phase than where the error fires? (Validation before a required transformation is a code bug.)
-   - **Edge case handling** — does the PRD describe behavior for empty/missing/malformed values?
+   - **Phase ordering / edge cases** — is the error firing before a required transformation? Does the PRD define behavior for empty/missing/malformed values?
 3. **Classify root cause** — one of:
-   - **Code bug** — the PRD defines behavior the code doesn't implement, implements in the wrong order, or validates before applying a required transformation. **Fix it.**
+   - **Code bug** — the PRD defines behavior the code doesn't implement, implements with wrong parameters (ranges, patterns, thresholds), or in the wrong order. **Fix it.**
    - **Legitimate data issue** — the input genuinely lacks required data and the PRD defines no mechanism to handle it. **Document it.**
    - **PRD gap** — the PRD doesn't cover this edge case. **Flag it.**
 4. **Default assumption: code is wrong.** Only classify as "data issue" after confirming:
-   - You have inspected the actual input data (not just the error message)
-   - You have searched the PRD for fallback/override/default rules for the failing field
-   - You have verified the code implements those rules in the correct order
+   - You have inspected the actual input data at **PRD-specified locations** (not just where the code searches)
+   - You have verified the code's search parameters (ranges, patterns, columns) match the PRD specification
+   - You have checked PRD for fallback/override/default rules and verified correct implementation order
    - The input genuinely cannot satisfy the requirement through any PRD-defined mechanism
 
 ### Investigation strategy: main agent vs subagents
