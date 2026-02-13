@@ -56,6 +56,12 @@ For each model: {name}: {fields with types, one line}
 ### Existing Code Assessment
 For each existing module: {module_path}: {status: complete|partial|stub} — {what's implemented}
 If greenfield: "No existing code"
+
+### Existing Tooling
+- Test framework config: {path or NONE}
+- Linting config: {path or NONE}
+- Type checking config: {path or NONE}
+- CI/CD config: {path or NONE}
 ```
 
 **Gate:** If the brief reports PRD or architecture as MISSING, stop and ask the user.
@@ -64,7 +70,7 @@ If greenfield: "No existing code"
 
 ## Phase 2: Plan (subagent → file)
 
-**Delegate planning to a Plan subagent** that writes `build-plan.md` and `build-context.md`. This keeps PRD/architecture contents out of main context.
+**Delegate planning to a general-purpose subagent** that writes `build-plan.md` and `build-context.md`. This keeps PRD/architecture contents out of main context.
 
 ### Subagent prompt:
 
@@ -85,12 +91,23 @@ Produce TWO files:
 ### File 1: {project_root}/build-plan.md
 Contains:
 
-#### 1. Interface Contracts
+#### 1. Build Config
+| Key | Value |
+|-----|-------|
+| language | |
+| package_manager | |
+| test_command | |
+| lint_command | |
+| lint_tool | (package name to install as dev dep) |
+| type_check_command | |
+| type_check_tool | (package name to install as dev dep) |
+
+#### 2. Interface Contracts
 For every public function called across module boundaries:
 module.function(param: Type, ...) -> ReturnType
   Called by: [modules]
 
-#### 2. Batch Plan
+#### 3. Batch Plan
 Group unbuilt/incomplete modules by dependency order:
 - Batch 0: [modules with no unbuilt deps]
 - Batch 1: [modules depending only on batch 0]
@@ -105,10 +122,12 @@ A self-contained reference file for all subagents. Contains:
 - Side-effect ownership rules
 - Test requirements (happy path, edge cases, error cases, 3-5 per function)
 - Known gotchas
+- Platform-specific considerations (Windows encoding, path handling, etc.)
 
 ## Rules
 - Read the PRD as the source of truth
 - Do NOT include raw PRD/architecture text — distill into structured sections
+- Do NOT duplicate conventions in build-plan.md — they belong in build-context.md only
 - Proceed quickly — this is rapid build mode
 ```
 
@@ -127,10 +146,17 @@ Create the project foundation before delegating any implementation:
 
 - Directory structure and module init files
 - Project manifest with all dependencies
+- **Dev tooling:** Install lint and type-check tools from Build Config (`lint_tool`, `type_check_tool`) as dev dependencies now — do not defer to batch gates
 - Install / sync dependencies
 - Cross-cutting infrastructure: error types, shared constants, data models, logging config
 - Shared test configuration and fixtures
 - Verify the scaffold compiles / imports cleanly
+
+**For existing codebases:** Reuse existing test framework, fixtures, linting config, and type-checking config. Only create new directories/files needed for new modules.
+
+**Platform considerations:**
+- **Windows:** Ensure UTF-8 encoding for file I/O (stdout/stderr reconfiguration if needed). Use `pathlib` for paths.
+- **All platforms:** Use `pathlib` for file paths. Avoid shell-specific syntax in scripts.
 
 **Gate:** Run a test collection dry-run (e.g., `pytest --collect-only`, `jest --listTests`). Must succeed before proceeding.
 
@@ -163,6 +189,7 @@ Read {project_root}/build-context.md for conventions, contracts, and cross-cutti
 ## Constraints
 - Do NOT modify files outside {module_path} and {test_path}
 - Do NOT install additional dependencies
+- Do NOT redefine types, classes, or dataclasses that exist in your imports — import them from the owning module
 - Run tests before finishing: {test_command}
 ```
 
@@ -185,9 +212,24 @@ After ALL subagents in a batch finish:
 **If test data exists**, delegate to a subagent:
 
 ```
-Run the real-data-validation workflow defined in {skill_base_dir}/.claude/skills/real-data-validation/skill.md.
-Write your final report to: {project_root}/validation-report.md
-{include project paths and stack info}
+Run real-data-validation. Follow the 5-step process: Baseline, Run Against All Data, Investigate Non-Ideal Results, Fix and Re-run, Report.
+
+Project root: {root}
+PRD: {prd_path}
+Test data: {data_dir}
+Run command: {run_cmd}
+Test command: {test_cmd}
+
+Read {project_root}/build-context.md for conventions and expected behavior.
+
+Key principles:
+- Default assumption: code is wrong, not data.
+- Group failures by similarity before investigating.
+- Fix likely code bugs IMMEDIATELY before investigating uncertain cases.
+- Cross-reference failures against PRD directly.
+- Iterate for up to 3 rounds until stable.
+
+Write report to {project_root}/validation-report.md.
 ```
 
 After it completes, read `validation-report.md` (not TaskOutput) and relay to the user.
@@ -219,8 +261,11 @@ After it completes, read `validation-report.md` (not TaskOutput) and relay to th
 |---------|--------|
 | Subagent returns with failing tests | Read only failing output, fix or re-delegate |
 | Cross-module type/signature mismatch | Fix implementing module to match contract |
+| Subagent redefined types from imports | Delete duplicates, add imports — append reminder to build-context.md |
 | Subagent can't find dependency module | Scaffold is incomplete — fix and re-delegate |
+| Dev tools missing at batch gate | Install immediately, note in build-context.md |
 | Tests pass individually but fail together | Shared mutable state — add isolation |
 | Validation finds code bugs | Fix directly, re-run validation |
+| Validation finds formatting bugs | Likely spec distillation loss — cross-ref PRD directly, fix code |
 | Import/circular dependency error | Refactor to break the cycle |
 | Context getting large | Delegate remaining work to fewer, larger subagents |
