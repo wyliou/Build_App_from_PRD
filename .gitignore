@@ -61,3 +61,17 @@ data/finished/
 # PyInstaller
 *.spec
 AutoConvert.exe
+
+# Build artifacts
+build-plan.md
+build-context.md
+build-log.md
+specs/
+validation-report.md
+validation-round-*.log
+
+# Generated project code
+src/
+tests/
+pyproject.toml
+uv.lock
