@@ -55,7 +55,7 @@ When running on a directory, scan for code duplicated **across** modules:
 
 - **DO NOT** change public API signatures
 - **DO NOT** remove code marked with `# KEEP`, `# REQUIRED`, `// KEEP`, `// REQUIRED`
-- **DO NOT** simplify test files
+- **DO NOT** simplify test files — EXCEPT updating import paths after cross-module consolidation (rule 5)
 - **DO NOT** modify configuration files
 - **PRESERVE** all existing functionality — simplification must be behavior-preserving
 
@@ -73,7 +73,7 @@ When running on a directory, scan for code duplicated **across** modules:
 2. **Cross-module dedup scan** (rule 5): identify functions, constants, and logic duplicated across files. Group duplicates by content similarity.
 3. Consolidate duplicates into shared modules, update all import sites
 4. Apply within-file simplifications (rules 1–4) to each file
-5. Run the full test suite to verify no regressions
+5. Run both unit AND integration tests to verify no regressions (integration tests exercise cross-module paths affected by dedup)
 6. Report all changes made, grouped by category
 
 ## Output Format

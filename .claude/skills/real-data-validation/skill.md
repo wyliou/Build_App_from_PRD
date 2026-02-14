@@ -48,7 +48,7 @@ If `build-plan.md` exists, read its **Build Config** table for pre-computed comm
 
 ## Step 2: Run Against All Test Data
 
-1. **Execute the application** against every input in the test data directory. **Capture all output (stdout+stderr) to a file** (name: `validation-round-{N}.log`) for reliable parsing.
+1. **Execute the application** against every input in the test data directory. **Capture all output (stdout+stderr) to a UTF-8 encoded file** (name: `validation-round-{N}.log`) for reliable parsing.
    - For **CLI/batch apps**: run the command against all input files.
    - For **APIs/servers**: start the server, send requests with each test input, capture responses.
    - For **libraries**: call the entry function with each test input.
@@ -173,6 +173,7 @@ Write the report to `{project_root}/validation-report.md`.
 | Success | X | X | ... | X |
 | Warning | X | X | ... | X |
 | Failed | X | X | ... | X |
+| **Automation rate** | X% | X% | ... | X% |
 | Code bugs found | X | X | ... | X |
 
 Stabilized in round {N} of 3.
@@ -198,8 +199,7 @@ Stabilized in round {N} of 3.
 ```
 
 Include:
-- **Round-over-round delta table** — shows improvement trajectory across rounds.
-- **Every non-ideal result** — even if grouped during investigation, list each input individually so nothing is silently dropped.
+- **Round-over-round deltas** — shows improvement trajectory. List every non-ideal result individually (even if grouped during investigation) so nothing is silently dropped.
 - **Every code bug** — with symptom, root cause, fix, and impact count.
 - **Test updates** — every test modified due to code fixes, with rationale.
 - **Recommendations** — actionable suggestions for remaining data issues and PRD gaps.

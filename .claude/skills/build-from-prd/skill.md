@@ -112,17 +112,17 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 ### After subagent completes
 
 1. **Verify files exist** — resume subagent if any are missing.
-2-4. **Run in parallel** (these are independent reads):
-   - **Spot-check** FRs section of 3 specs (1 complex, 1 moderate, 1 simple) — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation. Check that open-ended enumerations ("etc.") are expressed as generative rules, not truncated lists. Check that heuristic/classifier FRs include boundary definitions (positive + negative examples).
-   - **Verify verbatim outputs** — grep the PRD for quoted strings, format examples, and message templates. For each, verify it appears in at least one spec file's **Verbatim Outputs** section. If any missing, resume subagent.
-   - **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file. If any unassigned, resume subagent.
-   - **Data field flow check** — if the PRD defines a data model with enumerated fields (e.g., "13 per-item fields"), verify every field appears in extraction, model, AND output specs. A field present in the model but missing from extraction or output = incomplete wiring. Resume subagent to fix.
-5. **Resolve ambiguities** — ask user if needed.
-6. **Validate dependency graph:**
+2. **Delegate verification to a subagent** (keeps token-heavy reads out of main context). Subagent runs four checks, reports ONLY failures (resume Phase 1 subagent to fix any gaps):
+   - **Spot-check** FRs of 3 specs (1 complex, 1 moderate, 1 simple) — verify PRD parameters survived distillation, open-ended enumerations are generative rules, heuristic FRs have boundary definitions (positive + negative examples).
+   - **Verbatim outputs** — grep PRD for quoted strings, format examples, and message templates. Verify each appears in a spec's Verbatim Outputs section.
+   - **FR coverage** — every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file.
+   - **Data field flow** — every field in PRD's data model appears in extraction, model, AND output specs. Field present in model but absent from extraction or output = incomplete wiring.
+3. **Resolve ambiguities** — ask user if needed.
+4. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
    - If any violation found, re-order batches. Log to `build-log.md`.
-7. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
-8. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
+5. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
+6. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
 
 **Gate:** If PRD or architecture MISSING, stop and ask user.
 
@@ -140,8 +140,8 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 
 **Platform considerations:**
 - Detect the OS from the runtime environment.
-- **Windows:** Ensure UTF-8 encoding for all file I/O (stdout/stderr reconfiguration if needed). Use `pathlib` for all path handling. Add BOM markers to output files if the PRD requires Windows console compatibility.
-- **All platforms:** Use `pathlib` for file paths (not `os.path` string manipulation). Avoid shell-specific syntax in scripts. Test commands should work cross-platform.
+- **Windows:** Ensure UTF-8 encoding for all file I/O (stdout/stderr reconfiguration if needed). Use the language's native path abstraction. Add BOM markers to output files if the PRD requires Windows console compatibility.
+- **All platforms:** Use the language's path abstraction for file paths (not string manipulation). Avoid shell-specific syntax in scripts. Test commands should work cross-platform.
 
 **Delegation:** For large projects (>15 modules), delegate scaffold to a subagent to save main context. Provide the Shared Utilities signatures from `build-plan.md` and the directory structure in the prompt.
 
@@ -204,7 +204,7 @@ Run `git diff --name-only` to list all files modified by this batch's subagents.
 ```bash
 {type_check_command} {batch_module_paths}
 ```
-Run full `{type_check_command}` only at milestone gates (midpoint + final batch). If a fix pattern appears in ≥2 modules, IMMEDIATELY append it to `build-context.md` so future batches avoid it.
+Run full `{type_check_command}` only at milestone gates (midpoint + final batch). If a fix pattern appears in ≥2 modules, IMMEDIATELY append it to `build-context.md` so future batches avoid it. If ALL errors trace to third-party type stubs (not project code), log the count in build-log.md and proceed.
 
 **Step 3 — Test gate:**
 - Run tests for **this batch only**: `{test_command} {batch_test_paths}`
@@ -329,7 +329,7 @@ This log survives context compaction and is the primary recovery artifact for bo
 3. Never copy subagent output into file writes — use subagents that write files directly.
 4. Never read subagent results on success — run tests instead.
 5. Never write >30 lines of module code in main context — delegate.
-6. Minimize reading specs in main context — only spot-check FRs and Verbatim Outputs during Phase 1 verification.
+6. Delegate Phase 1 verification (spot-check, verbatim, FR coverage, data field flow) to a subagent — do not read specs in main context.
 7. On context compaction: read `build-log.md` + task list to reconstruct state before continuing.
 
 ---
