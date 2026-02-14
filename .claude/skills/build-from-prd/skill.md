@@ -80,7 +80,7 @@ If no source code exists (greenfield): proceed normally.
 **IMPORTANT — Batch Plan Rules:**
 - Minimize batch count by merging modules whose dependencies are ALL in strictly earlier batches. Two modules can share a batch if neither depends on the other.
 - Optimize for minimum number of sequential gates, not minimum batch "width." Merge consecutive tail batches of ≤2 modules into one when dependencies allow.
-- For each module, assign complexity: **simple** (pure functions, no I/O, <5 functions), **moderate** (some I/O or state, 5-10 functions), **complex** (orchestration, many edge cases, >10 functions).
+- For each module, assign complexity: **simple** (pure functions, no I/O, <5 functions), **moderate** (some I/O or state, 5-10 functions), **complex** (orchestration, many edge cases, >10 functions). **Override:** If a module wraps a third-party library and must distinguish between library-internal type codes or modes (e.g., cell types, token types, status categories), classify as at least **moderate** regardless of function count — these require domain knowledge about the library's API semantics.
 
 **IMPORTANT — No Interface Contracts in build-plan.md:**
 Do NOT include a full Interface Contracts section. All function signatures belong in per-module spec files only.
@@ -94,17 +94,17 @@ Stack, error handling strategy, logging pattern, all conventions, all side-effec
 ## Write per-module spec files to {project_root}/specs/
 For EVERY module in the Batch Plan, create a file `specs/{module_name}.md` (e.g., `specs/extraction_invoice.md`) containing ONLY:
 1. **Module path** and **test path**
-2. **FRs** this module implements — distill prose but preserve ALL concrete parameters verbatim (thresholds, search ranges, patterns, priority orders, format examples). Disambiguate terms that could refer to multiple fields (e.g., "codes" → specify "source keys" vs "target values").
+2. **FRs** this module implements — distill prose but preserve ALL concrete parameters verbatim (thresholds, search ranges, patterns, priority orders, format examples). Disambiguate terms that could refer to multiple fields (e.g., "codes" → specify "source keys" vs "target values"). When the PRD uses open-ended qualifiers ("etc.", "and similar", "any number of", "such as") on a list, state the **generative rule** (e.g., "any string consisting entirely of repeated asterisks"), not just the PRD's examples. For any heuristic or classifier function, include explicit **boundary definitions**: 2-3 positive examples that SHOULD match AND 2-3 negative examples that SHOULD NOT match but are close enough to be confused.
 3. **Exports** — exact function/class signatures with param types, return types, and docstring summaries
 4. **Imports** — what this module imports (module path + symbol names + **which functions/methods it will call** from each import)
 5. **Side-effect rules** — what this module owns (logging, file I/O) and what it must NOT do
-6. **Test requirements** — 3-5 test cases per function (happy/edge/error) with one-line descriptions
+6. **Test requirements** — 3-5 test cases per function (happy/edge/error) with one-line descriptions. For classifier/heuristic functions, require at least one **negative boundary case** (input that resembles a match but must NOT match). For scoring/ranking functions, require a **minimum-qualifying case** (barely passes threshold) and an **empty candidates case**.
 7. **Gotchas** — any known pitfalls specific to this module
 8. **Verbatim outputs** — every user-visible string this module produces: exact log messages (with log level), print formats, error message templates, status strings. Copy these **character-for-character** from the PRD. If the PRD specifies emoji, log level, field layout, or conditional formatting, include it exactly. This section prevents distillation loss of output format requirements.
 
 Each spec file should be **under 200 lines**.
 
-**Before finishing:** cross-validate all specs: (a) every Import resolves to an Export, every Export is consumed by ≥1 Import (orphans = missing wiring); (b) every module's imports come from strictly earlier batches (violations = reorder batches). Fix all issues before completing.
+**Before finishing:** cross-validate all specs: (a) every Import resolves to an Export, every Export is consumed by ≥1 Import (orphans = missing wiring); (b) every module's imports come from strictly earlier batches (violations = reorder batches); (c) **data field tracing** — for every field in the PRD's data model, verify it appears in the complete processing chain (extraction spec → data model spec → transformation spec → output spec); a field present in the model but absent from extraction or output is incomplete wiring. Fix all issues before completing.
 
 Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
 ```
@@ -113,9 +113,10 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 
 1. **Verify files exist** — resume subagent if any are missing.
 2-4. **Run in parallel** (these are independent reads):
-   - **Spot-check** FRs section of 3 specs (1 complex, 1 moderate, 1 simple) — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation.
+   - **Spot-check** FRs section of 3 specs (1 complex, 1 moderate, 1 simple) — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation. Check that open-ended enumerations ("etc.") are expressed as generative rules, not truncated lists. Check that heuristic/classifier FRs include boundary definitions (positive + negative examples).
    - **Verify verbatim outputs** — grep the PRD for quoted strings, format examples, and message templates. For each, verify it appears in at least one spec file's **Verbatim Outputs** section. If any missing, resume subagent.
    - **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file. If any unassigned, resume subagent.
+   - **Data field flow check** — if the PRD defines a data model with enumerated fields (e.g., "13 per-item fields"), verify every field appears in extraction, model, AND output specs. A field present in the model but missing from extraction or output = incomplete wiring. Resume subagent to fix.
 5. **Resolve ambiguities** — ask user if needed.
 6. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
@@ -242,7 +243,7 @@ Read {project_root}/build-context.md for conventions and expected output formats
 Use real modules — no mocking of internal components.
 
 Write tests in these categories (unit tests already cover per-module edge cases and errors — focus on cross-module behavior):
-1. **Boundary tests** (3-5) — wire 2-3 adjacent modules, pass realistic data, verify output. Focus on data handoff points between subsystems. Include at least one error input per boundary.
+1. **Boundary tests** (3-5) — wire 2-3 adjacent modules, pass realistic data, verify output. Focus on data handoff points between subsystems. Include at least one error input per boundary. Include at least one test per pipeline with **structural irregularities** the PRD mentions (e.g., non-consecutive indices, gaps from filtered/skipped rows, missing optional fields, mixed types in a column).
 2. **Full pipeline tests** (3-5) — synthetic input end-to-end, verify final output structure and content. Include happy path, empty/minimal input, and one error-triggering input.
 3. **Output format** (2-3) — verify end-to-end output matches expected formats. Check field order, delimiters, headers, encoding.
 
@@ -288,10 +289,7 @@ Invoke the /real-data-validation skill using the Skill tool, then follow its ins
 
 Project root: {root}
 
-Build artifacts available (the skill knows how to use these):
-- {root}/build-plan.md — Build Config with test_command, language, package_manager
-- {root}/build-context.md — conventions, side-effect ownership, known gotchas
-- {root}/specs/ — per-module spec files with FR mappings and verbatim outputs
+The skill will independently discover PRD, architecture, source code, test data, and project manifest. It uses PRD + architecture as its sole source of truth for investigation — do not point it at build-plan.md or specs/ for understanding requirements.
 ```
 
 After: read `validation-report.md`. If code changes were made, re-run full test suite. Relay report to user.
@@ -359,6 +357,9 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 | Cross-module signature mismatch | Fix implementing module to match spec file |
 | Missing dependency module | Scaffold incomplete — create init/export, re-delegate |
 | Implementation diverges from PRD | Spec lossy — verify spec FRs against PRD, fix spec, re-delegate |
+| Heuristic/classifier has wrong boundaries | Spec FRs lacked boundary definitions — add positive+negative examples to spec, re-delegate. Append boundary to build-context.md |
+| Open-ended pattern truncated to fixed set | Spec distilled "etc." to enumeration — fix spec to state generative rule, re-delegate |
+| Data field exists in model but not extracted/output | Incomplete pipeline wiring — trace field through extraction→model→output specs, fix gaps, re-delegate affected modules |
 | Phase 5 finds formatting/output bugs | Spec distillation lost verbatim strings — cross-ref PRD directly, fix code, append missing format strings to build-context.md so future batches avoid same issue |
 | Tests pass individually, fail together | Shared mutable state — check for global state, module system hacks, test ordering deps |
 | Lint / type errors after batch | Fix directly; for signature mismatches, match spec files |

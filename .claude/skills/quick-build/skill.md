@@ -128,6 +128,9 @@ A self-contained reference file for all subagents. Contains:
 - Read the PRD as the source of truth
 - Do NOT include raw PRD/architecture text — distill into structured sections
 - Do NOT duplicate conventions in build-plan.md — they belong in build-context.md only
+- When the PRD uses open-ended qualifiers ("etc.", "and similar", "any number of") on a list, state the **generative rule** in the interface contract, not just the PRD's examples
+- For classifier/heuristic functions, include **boundary definitions** in build-context.md: positive examples that SHOULD match AND negative examples that SHOULD NOT match
+- **Data field tracing**: for every field in the PRD's data model, verify it appears in extraction, model, AND output module contracts — a field present in the model but absent from extraction or output is incomplete wiring
 - Proceed quickly — this is rapid build mode
 ```
 
@@ -212,24 +215,11 @@ After ALL subagents in a batch finish:
 **If test data exists**, delegate to a subagent:
 
 ```
-Run real-data-validation. Follow the 5-step process: Baseline, Run Against All Data, Investigate Non-Ideal Results, Fix and Re-run, Report.
+Invoke the /real-data-validation skill using the Skill tool, then follow its instructions to completion.
 
 Project root: {root}
-PRD: {prd_path}
-Test data: {data_dir}
-Run command: {run_cmd}
-Test command: {test_cmd}
 
-Read {project_root}/build-context.md for conventions and expected behavior.
-
-Key principles:
-- Default assumption: code is wrong, not data.
-- Group failures by similarity before investigating.
-- Fix likely code bugs IMMEDIATELY before investigating uncertain cases.
-- Cross-reference failures against PRD directly.
-- Iterate for up to 3 rounds until stable.
-
-Write report to {project_root}/validation-report.md.
+The skill will independently discover PRD, architecture, source code, test data, and project manifest. It uses PRD + architecture as its sole source of truth for investigation.
 ```
 
 After it completes, read `validation-report.md` (not TaskOutput) and relay to the user.

@@ -11,10 +11,12 @@ Can be invoked standalone or delegated to by another skill (e.g., `build-from-pr
 
 ## Inputs
 
-Locate and read:
+### Primary sources (required)
 
-- **PRD**: Search for `PRD.md`, `prd.md`, or files containing "requirements" / "product requirements" in `docs/`, project root, or any reasonable location.
-- **Architecture**: Search for `architecture.md`, `ARCHITECTURE.md`, `design.md`, or similar. Needed to understand module boundaries and data flow during investigation.
+These are the **only** sources of truth for understanding requirements and classifying bugs:
+
+- **PRD**: Search for `PRD.md`, `prd.md`, or files containing "requirements" / "product requirements" in `docs/`, project root, or any reasonable location. This is the authoritative reference for ALL investigation — what the code should do, what parameters to use, what edge cases to handle.
+- **Architecture**: Search for `architecture.md`, `ARCHITECTURE.md`, `design.md`, or similar. Use this to understand module boundaries, data flow, and side-effect ownership during investigation.
 - **Source code**: Check `src/`, `app/`, `lib/`, or the project's established source directory.
 - **Test suite**: Check `tests/` or the project's test directory.
 - **Test data**: Check `data/`, `samples/`, `fixtures/`, `tests/data/`, or similar.
@@ -22,19 +24,17 @@ Locate and read:
 
 STOP if PRD, source code, or test data is missing — report what's absent.
 
-### Build artifacts (when delegated from `build-from-prd` or `quick-build`)
+### Build artifacts (optional — stack detection only)
 
-Check the project root for these files — if they exist, use them instead of re-detecting:
+If `build-plan.md` exists, read its **Build Config** table for pre-computed commands (`test_command`, `run_command`, `src_dir`, `test_dir`, language, package manager). This saves re-detecting the stack in Step 1.
 
-- **`build-plan.md`**: Contains a **Build Config** table with pre-computed `test_command`, `run_command`, `src_dir`, `test_dir`, language, and package manager. Use these directly in Step 1 instead of re-detecting the stack.
-- **`build-context.md`**: Contains project conventions, side-effect rules, error handling patterns, and known gotchas. Read this for context during investigation — it explains which module owns which side-effect (logging, file I/O), which prevents misclassifying ownership bugs.
-- **`specs/`**: Per-module spec files with FR mappings, exports, and verbatim outputs. Useful for understanding module boundaries during investigation, but always cross-reference the **PRD directly** — specs may have lost parameters during distillation.
+**Do NOT use build artifacts (`build-context.md`, `specs/`) for investigating failures or classifying bugs.** These are derived from the PRD and may have lost parameters during distillation — using them for investigation would inherit the same blind spots that caused the bugs. Always cross-reference the PRD and architecture directly.
 
 ---
 
 ## Step 1: Baseline
 
-1. **Detect the stack.** If `build-plan.md` exists, read the **Build Config** table for pre-computed commands (test_command, language, package_manager, src_dir, test_dir). Otherwise, detect from the project manifest. Determine the test command, run command, and dependency isolation method.
+1. **Detect the stack.** Read the project manifest to determine language, package manager, test command, run command, and dependency isolation method. If `build-plan.md` exists, its **Build Config** table has pre-computed commands that can accelerate this step.
 2. **Run the full test suite.** Record the pass/fail count.
    - If tests fail, fix them before proceeding. Do not investigate test data with a broken test suite.
 3. **Identify the entry point** — how to execute the application against test data:
@@ -77,7 +77,7 @@ Check the project root for these files — if they exist, use them instead of re
 - Flag same condition reported with different wording from different modules.
 - Flag inconsistent message formatting (different prefixes, capitalization, templates).
 
-These are **convention divergence or responsibility overlap bugs** — two modules independently detecting/reporting the same condition. If `build-context.md` exists, use its **Side-Effect Ownership** rules to quickly identify which module is the rightful owner. Classify and fix as code bugs before investigating data failures.
+These are **convention divergence or responsibility overlap bugs** — two modules independently detecting/reporting the same condition. Check the **architecture doc** for module responsibility boundaries and the **PRD** for which module should own each side-effect (logging, file I/O, error reporting) to identify the rightful owner. Classify and fix as code bugs before investigating data failures.
 
 ### Phase B: Quick triage (main agent)
 
@@ -88,7 +88,8 @@ For each group, do a **lightweight check** in main context before committing to 
 3. **Quick data check** — write one **batch diagnostic script per group** (not per file) and save for reuse in later rounds. The script should process ALL files in the group and print a summary table. This reveals whether the issue is consistent across the group.
    - Stack-agnostic framing: write a minimal script that reads the raw input at **both** the code's failure point **and** PRD-specified locations. Use whatever tool fits the stack (openpyxl for Excel, jq for JSON, DOM parser for XML, curl for APIs, etc.).
    - Print values in **related fields** and at **PRD-specified locations** — the data may exist where the PRD says to look, not where the code currently searches.
-4. **Quick PRD check** — **read** the relevant PRD section (not just grep). Compare the PRD's specified algorithm (search ranges, patterns, columns, thresholds) against the code's actual implementation. Also check for fallbacks, overrides, defaults.
+4. **Positional assumption check** — if the failing function computes positions from indices (e.g., `offset + index`, `header_row + 1 + i`), check whether upstream extraction can produce non-consecutive positions (skipped rows, filtered items, sub-headers). Index-based position computation that ignores gaps is a common source of false positives.
+5. **Quick PRD check** — **read** the relevant PRD section (not just grep). Compare the PRD's specified algorithm (search ranges, patterns, columns, thresholds) against the code's actual implementation. Also check for fallbacks, overrides, defaults.
 
 After quick triage, classify each group into one of:
 - **Likely code bug** — PRD defines behavior the code doesn't implement, or implements with wrong parameters (search ranges, patterns). Fix immediately.
