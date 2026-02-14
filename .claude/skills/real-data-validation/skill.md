@@ -42,13 +42,13 @@ Check the project root for these files — if they exist, use them instead of re
    - Look for `main` files, CLI modules, `Makefile` targets, or run scripts.
    - Read the PRD or README for usage instructions.
    - If the application is a library (not a CLI/server), identify the top-level function that processes input and write a short runner script.
-4. **Smoke test** — run the application against **one** test input to verify it starts, processes without crashing, and produces output. If the smoke test fails (config errors, missing dependencies, startup exceptions), fix the blocker before running against all data. This catches environment and config issues cheaply.
+4. **Smoke test** — run the application against the **smallest/simplest** test input to verify it starts, processes without crashing, and produces output. If the smoke test fails (config errors, missing dependencies, startup exceptions), fix the blocker before running against all data. This catches environment and config issues cheaply.
 
 ---
 
 ## Step 2: Run Against All Test Data
 
-1. **Execute the application** against every input in the test data directory. **Capture output to a file** (e.g., `> validation-run-1.log 2>&1`) for reliable parsing.
+1. **Execute the application** against every input in the test data directory. **Capture all output (stdout+stderr) to a file** (name: `validation-round-{N}.log`) for reliable parsing.
    - For **CLI/batch apps**: run the command against all input files.
    - For **APIs/servers**: start the server, send requests with each test input, capture responses.
    - For **libraries**: call the entry function with each test input.
@@ -85,7 +85,7 @@ For each group, do a **lightweight check** in main context before committing to 
 
 1. **Read the error message.** Identify the function and line where the non-ideal outcome originates.
 2. **Read the failing function** (~50 lines around the failure site). Do NOT trace the entire pipeline.
-3. **Quick data check** — write one **batch diagnostic script per group** (not per file). The script should process ALL files in the group and print a summary table. This is faster than individual scripts and reveals whether the issue is consistent across the group.
+3. **Quick data check** — write one **batch diagnostic script per group** (not per file) and save for reuse in later rounds. The script should process ALL files in the group and print a summary table. This reveals whether the issue is consistent across the group.
    - Stack-agnostic framing: write a minimal script that reads the raw input at **both** the code's failure point **and** PRD-specified locations. Use whatever tool fits the stack (openpyxl for Excel, jq for JSON, DOM parser for XML, curl for APIs, etc.).
    - Print values in **related fields** and at **PRD-specified locations** — the data may exist where the PRD says to look, not where the code currently searches.
 4. **Quick PRD check** — **read** the relevant PRD section (not just grep). Compare the PRD's specified algorithm (search ranges, patterns, columns, thresholds) against the code's actual implementation. Also check for fallbacks, overrides, defaults.
