@@ -79,7 +79,7 @@ If no source code exists (greenfield): proceed normally.
 
 **IMPORTANT — Batch Plan Rules:**
 - Minimize batch count by merging modules whose dependencies are ALL in strictly earlier batches. Two modules can share a batch if neither depends on the other.
-- Optimize for minimum number of sequential gates, not minimum batch "width."
+- Optimize for minimum number of sequential gates, not minimum batch "width." Merge consecutive tail batches of ≤2 modules into one when dependencies allow.
 - For each module, assign complexity: **simple** (pure functions, no I/O, <5 functions), **moderate** (some I/O or state, 5-10 functions), **complex** (orchestration, many edge cases, >10 functions).
 
 **IMPORTANT — No Interface Contracts in build-plan.md:**
@@ -112,9 +112,10 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 ### After subagent completes
 
 1. **Verify files exist** — resume subagent if any are missing.
-2. **Read `build-plan.md`**. **Spot-check** FRs section of 3 specs (1 complex, 1 moderate, 1 simple) — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation.
-3. **Verify verbatim outputs** — grep the PRD for quoted strings, format examples, and message templates (e.g., `"SUCCESS"`, `"FAILED"`, log format patterns). For each, verify it appears in at least one spec file's **Verbatim Outputs** section. If any user-visible format string from the PRD is missing from all specs, resume the subagent to add it.
-4. **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file's FRs section. If any FR is unassigned, resume the subagent to assign it to the appropriate module.
+2-4. **Run in parallel** (these are independent reads):
+   - **Spot-check** FRs section of 3 specs (1 complex, 1 moderate, 1 simple) — verify concrete PRD parameters (ranges, thresholds, patterns) weren't lost in distillation.
+   - **Verify verbatim outputs** — grep the PRD for quoted strings, format examples, and message templates. For each, verify it appears in at least one spec file's **Verbatim Outputs** section. If any missing, resume subagent.
+   - **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file. If any unassigned, resume subagent.
 5. **Resolve ambiguities** — ask user if needed.
 6. **Validate dependency graph:**
    - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
@@ -177,7 +178,7 @@ Constraints:
 - Only modify {module_path} and {test_path}. Do NOT create stub files for other modules.
 - No new dependencies. Do NOT duplicate utility functions that exist in shared modules (check imports in your spec).
 - Do NOT redefine types, classes, or dataclasses that exist in your imports — import them from the owning module.
-- Run {test_command} {test_path} before finishing.
+- Run {format_command} {module_path} {test_path} && {lint_command} {module_path} {test_path} && {test_command} {test_path} before finishing.
 - Your implementation must NOT contain stubs — fully implement all functions.
 - Do NOT manipulate the module/import system globally or rely on test execution order.
 - All test fixtures must be scoped per-test unless explicitly configured otherwise.
@@ -198,18 +199,16 @@ Search source files for `{stub_detection_pattern}`. If any found, re-delegate th
 **Step 1.5 — Scope check:**
 Run `git diff --name-only` to list all files modified by this batch's subagents. Any file NOT in the batch's expected `{module_path}` or `{test_path}` list is out-of-scope. Review: additions to shared/core modules (new types, constants) are often correct — accept and note in build-log. Modifications to other modules' existing logic must be reverted and the subagent re-delegated with stricter scope.
 
-**Step 2 — Format + lint + type check:** (skip disabled gates; run in parallel — they're independent)
+**Step 2 — Type check:** (subagents already ran format + lint on their files)
 ```bash
-{format_command}
-{lint_command}
-{type_check_command}
+{type_check_command} {batch_module_paths}
 ```
-Fix errors before proceeding. If a fix pattern appears in ≥2 modules, IMMEDIATELY append it (with code example) to `build-context.md` so future batches avoid it.
+Run full `{type_check_command}` only at milestone gates (midpoint + final batch). If a fix pattern appears in ≥2 modules, IMMEDIATELY append it to `build-context.md` so future batches avoid it.
 
 **Step 3 — Test gate:**
 - Run tests for **this batch only**: `{test_command} {batch_test_paths}`
 - Then run a quick **smoke test** in first-failure-exit mode (`-x`, `--bail`, `--failfast` per language)
-- Run the **full test suite** only at milestone gates: after the midpoint batch and after the final batch.
+- Run the **full test suite** at the final batch. Also at midpoint if any batch required fixes or re-delegation; otherwise skip.
 
 Do NOT read subagent results on success — test results are your signal.
 
@@ -221,19 +220,9 @@ Do NOT read subagent results on success — test results are your signal.
 3. Re-run only failing tests + smoke test.
 4. Advance to next batch once all modules pass.
 
-**Step 6 — Log:** Append batch results to `build-log.md` (pass/fail, test count, any re-delegations).
+**Step 6 — Convention check (final batch only):** Grep source files for duplicate log messages and convention divergences (formatting, capitalization). Fix any found.
 
-### Final-batch convention compliance gate
-
-After the **last batch** passes all tests, run a convention compliance check before proceeding to Phase 4:
-
-1. **Grep source files** for all log/print statements that produce user-visible output.
-2. **Cross-reference against PRD** format specifications — verify log levels, message formats, emoji usage, and field layouts match.
-3. **Check for duplicate messages** — same semantic message logged from 2+ locations (violates single-point logging).
-4. **Check for convention divergence** — inconsistent formatting, capitalization, or structure across modules.
-5. Fix any divergences found. Log results to `build-log.md`.
-
-This gate catches the most common class of Phase 5 bugs (formatting/convention divergences) before they require real-data validation to surface.
+**Step 7 — Log:** Append batch results to `build-log.md` (pass/fail, test count, any re-delegations, convention fixes).
 
 **Context rule:** Never write >30 lines of module code in main context — delegate instead.
 
@@ -281,7 +270,7 @@ Constraints:
 - Run {test_command} after changes to verify nothing breaks.
 ```
 
-**Skip condition:** Only skip if gate disabled in Build Config, OR the batch plan had a single batch. Passing tests do NOT indicate absence of duplication.
+**Skip condition:** Skip if gate disabled, OR ≤2 batches. Passing tests do NOT indicate absence of duplication.
 
 ### After both complete
 

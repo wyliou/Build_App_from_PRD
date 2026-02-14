@@ -144,7 +144,7 @@ For groups still unresolved after the fix-first loop, investigate the representa
 ### Re-running
 
 3. **Re-run the full test suite** to verify no regressions. All tests must pass.
-4. **Re-run against all test data** to check how many issues each fix resolved. Capture output to `validation-round-{N}.log`.
+4. **Re-run against failed/non-ideal files** plus ~20% of passing files (regression sample). Capture output to `validation-round-{N}.log`.
 5. **Compare with previous round** — diff the tier counts. Report the delta (e.g., "+2 SUCCESS, -1 ATTENTION, -1 FAILED").
 
 ### Iteration
