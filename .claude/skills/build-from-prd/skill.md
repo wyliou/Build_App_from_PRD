@@ -9,7 +9,7 @@ You are a **Tech Lead agent**. Subagents write module code/tests. You scaffold, 
 
 **Context budget:** Minimize what enters your context. Delegate reading to subagents. Communicate via files (`build-plan.md`, `build-context.md`). Never inline what subagents can read themselves.
 
-**Model rule:** The Phase 1 planning subagent MUST use the same model as the main agent (pass the `model` parameter). Interface contracts and conventions drive the entire build — this is not the place to economize.
+**Model rule:** Phase 1 Stage A (architecture) MUST use the same model as the main agent. Stage B spec-writing subagents can use `sonnet` — they distill from build-plan.md + PRD, not make architecture decisions.
 
 **Resumption rule:** If context was compacted or session resumed (including across sessions), read `build-log.md` + task list to reconstruct current phase/batch state before continuing. The build-log tracks per-module status, so partially-completed batches can resume without re-delegating passing modules.
 
@@ -17,9 +17,9 @@ You are a **Tech Lead agent**. Subagents write module code/tests. You scaffold, 
 
 ## Phase 1: Discover + Plan + Generate Module Specs
 
-Delegate to a **single general-purpose subagent** (NOT Plan — Plan can't write files). It reads PRD + architecture and writes `build-plan.md`, `build-context.md`, and **per-module spec files** directly. Do NOT read PRD/architecture yourself.
+Two stages. **Stage A**: single subagent reads PRD + architecture, writes `build-plan.md` (with exports table) + `build-context.md`. **Stage B**: parallel subagents write per-module spec files using build-plan.md as reference. Do NOT read PRD/architecture yourself.
 
-Subagent prompt — adapt paths per project:
+### Stage A prompt — adapt paths per project:
 ```
 You are a software architect. Discover the project, read PRD + architecture, and produce planning files.
 
@@ -27,15 +27,7 @@ Find and read: PRD (docs/PRD.md), Architecture (docs/architecture.md), manifest,
 
 ## PRD Format Analysis
 
-Before planning, assess the PRD structure:
-1. **Identify FR section** — find the section containing functional requirements (may be named "Functional Requirements", "Requirements", "Features", "Capabilities", etc.). Note the section name.
-2. **Identify FR ID scheme** — detect the identifier pattern used (e.g., FR-001, FR-AUTH-001, REQ-1, user-registration, or plain numbered headings). Use whatever scheme the PRD uses consistently.
-3. **Identify FR fields** — check which structured fields each FR provides. Expected: Input, Rules, Output, Error. Optional: Depends, Priority. Note any alternative naming (e.g., "Preconditions" for Depends, "Severity" for Priority).
-4. **Identify grouping structure** — FRs may be grouped under capability area headings, numbered sections, or flat lists. Note the grouping method.
-5. **Check for priority information** — FRs may have explicit Priority fields (Must/Should/Could), priority at the capability-area level, or none at all.
-6. **Note available sections** — list which other sections exist (Overview, Journeys, NFRs, Data Entities, Tech Constraints, Implementation Reference) by scanning headings.
-
-Record findings in build-plan.md under a **PRD Format Notes** block (3-5 lines) so the main agent can reference them during verification.
+Before planning, assess: (1) FR section name and ID scheme (e.g., FR-001), (2) FR fields (Input/Rules/Output/Error + optional Depends/Priority), (3) grouping structure and priority information, (4) other available sections (Overview, Journeys, NFRs, Data Entities, Tech Constraints, Implementation Reference). Record findings in build-plan.md under a **PRD Format Notes** block (3-5 lines).
 
 ## Greenfield vs Existing Codebase
 
@@ -86,7 +78,7 @@ If no source code exists (greenfield): proceed normally.
 4. **FR to Subsystem Map** — `{requirement_id}: subsystem — acceptance criterion` (use the PRD's own identifier scheme)
 5. **Side-Effect Ownership** — who logs what, non-owners must NOT
 6. **Shared Utilities** — functions/constants needed by 2+ modules. For each: signature, placement (module path), consumers, and brief implementation note (<10 lines each)
-7. **Batch Plan** — modules grouped by dependency order; each with: path, test_path, FRs, exports, imports, **complexity** (simple/moderate/complex)
+7. **Batch Plan** — modules grouped by dependency order; each with: path, test_path, FRs, **exports table** (function signatures with param types + return types), imports, **complexity** (simple/moderate/complex). The exports table is the interface contract for Stage B spec writers.
 8. **Ambiguities** — unclear/contradictory requirements
 
 **IMPORTANT — Batch Plan Rules:**
@@ -95,45 +87,60 @@ If no source code exists (greenfield): proceed normally.
 - If the PRD provides per-FR priority (Must/Should/Could), batch Must FRs earlier. If priority is absent, batch by dependency order, grouping alphabetically by capability area within each batch.
 - For each module, assign complexity: **simple** (pure functions, no I/O, <5 functions), **moderate** (some I/O or state, 5-10 functions), **complex** (orchestration, many edge cases, >10 functions).
 
-**IMPORTANT — No Interface Contracts in build-plan.md:**
-Do NOT include a full Interface Contracts section. All function signatures belong in per-module spec files only.
-
 **IMPORTANT — No Conventions in build-plan.md:**
 Conventions belong ONLY in build-context.md. build-plan.md must NOT duplicate them — reference build-context.md instead.
 
 ## Write {project_root}/build-context.md with:
 Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas (including third-party type-stub gaps and float comparison pitfalls), platform-specific considerations. Include a **Subagent Constraints** section with universal implementation rules (no stubs, no type redefinition, no new deps, no cross-module mocking, fixture scoping, singleton teardown) so the delegation prompt can reference it instead of repeating them.
 
-## Write per-module spec files to {project_root}/specs/
-For EVERY module in the Batch Plan, create a file `specs/{module_name}.md` (e.g., `specs/extraction_invoice.md`) containing ONLY:
-1. **Module path** and **test path**
-2. **FRs** this module implements — distill prose but preserve ALL concrete parameters verbatim (thresholds, search ranges, patterns, priority orders). Enumerated format/variant lists (e.g., "Supported formats: X, Y, Z") must be preserved as individual testable items, not summarized. When the PRD lists patterned examples (e.g., `*`, `**`, `***`), note the generalization rule (e.g., "any all-asterisk string") in Gotchas.
-3. **Exports** — exact function/class signatures with param types, return types, and docstring summaries
-4. **Imports** — what this module imports (module path + symbol names + **which functions/methods it will call**). For pipeline/orchestrator modules: include **required call order** with dependency rationale (e.g., "transform before validate — override populates fields that validation checks")
-5. **Side-effect rules** — what this module owns (logging, file I/O) and what it must NOT do
-6. **Test requirements** — 3-5 test cases per function (happy/edge/error). Each enumerated format/variant from the FRs section MUST have its own dedicated test case.
-7. **Gotchas** — any known pitfalls specific to this module
-8. **Verbatim outputs** — every user-visible string this module produces: exact log messages (with log level), print formats, error message templates, status strings. Copy these **character-for-character** from the PRD. If the PRD specifies emoji, log level, field layout, or conditional formatting, include it exactly. If the PRD does not define exact output formats for this module, write "No verbatim formats specified by PRD" and move on. This section prevents distillation loss of output format requirements.
-
-Each spec file should be **under 200 lines**.
-
-**Before finishing:** cross-validate all specs: (a) every Import resolves to a source Export, (b) every Export appears as an Import in ≥1 consumer (orphans = missing wiring), (c) every module's imports come from strictly earlier batches (dependency ordering), (d) orchestrator specs have a required call order where data-populating steps (transforms, overrides, fallbacks) precede validation of the fields they populate. Fix all issues before completing.
-
-Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on signatures. WRITE ALL FILES and verify they exist.
+Do NOT write spec files — that is Stage B's job.
+Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on exports table signatures. WRITE ALL FILES and verify they exist.
 ```
 
-### After subagent completes
+### After Stage A completes
 
 1. **Verify files exist** — resume subagent if any are missing.
-2. **Read `build-plan.md`**. **Spot-check** FRs section of 2-3 complex specs — verify concrete PRD parameters (ranges, thresholds, patterns) and enumerated format/variant lists weren't lost in distillation. For orchestrator specs, verify the required call order matches PRD data flow.
-3. **Verify verbatim outputs (best-effort)** — grep the PRD for quoted strings, format examples, and message templates (e.g., `"SUCCESS"`, `"FAILED"`, log format patterns). If the PRD contains such strings, verify each appears in at least one spec file's **Verbatim Outputs** section and resume the subagent to add any missing. If the PRD does not specify exact output formats, skip this check.
-4. **FR coverage check** — verify every FR in `build-plan.md`'s FR-to-Subsystem Map appears in at least one spec file's FRs section. If any FR is unassigned, resume the subagent to assign it to the appropriate module.
-5. **Resolve ambiguities** — ask user if needed.
-6. **Validate dependency graph:**
-   - For each module in the Batch Plan, check that every module listed in its `imports` is in a strictly earlier batch.
-   - If any violation found, re-order batches. Log to `build-log.md`.
-7. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
-8. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
+2. **Read `build-plan.md`** — verify exports table has concrete signatures, FR mapping is complete, batch plan follows merging rules.
+3. **Resolve ambiguities** — ask user if needed.
+
+### Stage B: Parallel Spec Writing
+
+Launch parallel spec-writing subagents — one per batch group (2-4 batches per group, use `sonnet` model). Each writes specs for its modules.
+
+Stage B prompt template:
+```
+Write spec files for these modules: {module_list}
+
+Read {project_root}/build-plan.md for exports table (your interface contract), batch plan, FR mapping, shared utilities.
+Read the PRD at {prd_path} for FR details referenced by your modules.
+Read {project_root}/build-context.md for conventions and subagent constraints.
+
+For each **moderate/complex** module, write `specs/{module_name}.md` with:
+1. **Module path** and **test path**
+2. **FRs** — distill prose but preserve ALL concrete parameters verbatim. Enumerated format/variant lists must be preserved as individual testable items. When the PRD lists patterned examples (e.g., `*`, `**`, `***`), note the generalization rule in Gotchas.
+3. **Exports** — must match build-plan.md exports table exactly, add docstring summaries
+4. **Imports** — module path + symbols + which functions to call. For orchestrators: include **required call order** with rationale
+5. **Side-effect rules**, **Gotchas**, **Verbatim outputs** (copy user-visible strings character-for-character from PRD)
+6. **Test requirements** — 3-5 per function. Each enumerated format/variant MUST have its own test case.
+
+For **simple** modules (pure functions, <5 functions), use **compact format** — single file `specs/{module_name}.md`:
+Module: {path} | Tests: {test_path} | FRs: {list}
+Exports: (copy from build-plan.md exports table)
+Imports: {module}: {symbols}
+Tests: {3-5 one-line test descriptions}
+Gotchas: {any, or "None"}
+
+Cross-validate: (a) every Import resolves to an Export in build-plan.md, (b) orchestrator call order has data-populating steps before validation. Fix issues before completing.
+```
+
+### After Stage B completes
+
+1. **Spot-check** 2-3 complex specs — verify PRD parameters and enumerated format lists weren't lost. For orchestrator specs, verify call order matches PRD data flow.
+2. **Verify verbatim outputs** — grep PRD for quoted strings/message templates; verify each appears in a spec. Resume subagent if missing.
+3. **FR coverage check** — every FR in build-plan.md must appear in at least one spec.
+4. **Validate dependency graph** — every import from strictly earlier batches. Re-order if violated.
+5. **Create task list:** Scaffold → Batch 0..N → Integration Tests + Simplify → Validate → Commit, with `addBlockedBy` ordering.
+6. **Initialize build log:** Write `{project_root}/build-log.md` with a header and Phase 1 completion entry.
 
 **Gate:** If PRD or architecture MISSING, stop and ask user.
 
