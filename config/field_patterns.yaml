@@ -25,6 +25,7 @@ packing_sheet:
 # Required fields must be found or file status = FAILED.
 
 invoice_columns:
+  min_header_matches: 7    # PRD ERR_014: ≥7 valid headers for header row identification
 
   # ----------------------------------------------------------------------------
   # PART NUMBER (Required)
@@ -269,6 +270,7 @@ invoice_columns:
 # Column mapping patterns for packing/packing list sheet.
 
 packing_columns:
+  min_header_matches: 3    # Header row ID threshold; ≥5 required fields enforced via ERR_020
 
   # ----------------------------------------------------------------------------
   # PART NUMBER (Required)
@@ -293,25 +295,6 @@ packing_columns:
       - '(?i)我司料号'                     # Our Company Part Number
     type: string
     required: true
-
-  # ----------------------------------------------------------------------------
-  # PO NUMBER (Optional)
-  # Fallback matching key when part_no differs between invoice/packing
-  # Some vendors put the matching key (part number) in this column instead
-  # ----------------------------------------------------------------------------
-  po_no:
-    patterns:
-      # English
-      - '(?i)^p\.?o\.?\s*no\.?'           # PO No, P.O. No., PO NO.
-      - '(?i)^po\s*number'                # PO Number
-      - '(?i)^order\s*no'                 # Order No
-      - '(?i)^po#'                        # PO#
-      - '(?i)^purchase\s*order'           # Purchase Order
-      # Chinese
-      - '(?i)采购订单号'                   # Purchase Order Number
-      - '(?i)订单号'                       # Order Number
-    type: string
-    required: false
 
   # ----------------------------------------------------------------------------
   # QUANTITY (Required)
@@ -375,9 +358,10 @@ packing_columns:
   pack:
     patterns:
       # English
+      - '(?i)^package'                    # Package, PACKAGE (CTNS)
       - '(?i)^cartons?$'                  # Carton, Cartons
       - '(?i)^ctns?\.?$'                  # CTN, CTNS, CTN.
-      - '(?i)^pallet$'              # Pack, Package, Packages
+      - '(?i)^pallet$'                    # Pallet
       - '(?i)carton.*id'                  # Carton ID
       - '(?i)^pkgs?$'                     # Pkg, Pkgs
       # Chinese

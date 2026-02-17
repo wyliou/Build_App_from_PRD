@@ -276,9 +276,12 @@ AutoConvert automates the conversion of vendor Excel files into a standardized 4
 - **Error:** ERR_030 → empty required field
 - **Depends:** FR-007, FR-009, FR-010
 
-**FR-016**: System prevents double-counting of merged weight cells
-- **Input:** Packing rows with merged NW cells
-- **Rules:** Merged NW cell value counted only on first row of merge range; subsequent rows return 0.0 for aggregation. Weight values are NOT propagated (per FR-010).
+**FR-016**: System prevents double-counting of shared weight cells
+- **Input:** Packing rows with shared carton weight (three recognized patterns)
+- **Rules:**
+  - **Merged cells:** Merged NW cell value counted only on first row of merge range; subsequent rows return 0.0 for aggregation. Weight values are NOT propagated (per FR-010).
+  - **Ditto marks:** Vendors use ditto marks (`"`, `〃`, `\u201c`, `\u201d`) in NW/GW columns to indicate "same carton as above." Ditto-mark cells are treated identically to merged cell continuation rows — return 0.0 for aggregation to prevent double-counting.
+  - **Blank-cell carton groups:** Vendors pack multiple PO lines into one carton and record NW/GW only on the first row of the group; continuation rows have blank (None/empty) NW/GW cells. These rows are valid data items — accept them with NW=0.0 for aggregation. Do NOT reject as missing data.
 - **Output:** Correct weight totals without duplication
 - **Depends:** FR-010
 
@@ -316,10 +319,11 @@ AutoConvert automates the conversion of vendor Excel files into a standardized 4
 **FR-020**: System extracts total_packets using multi-priority search
 - **Input:** Total row area, column search range (A through NW column + 2, minimum 11)
 - **Rules:**
-  - **Priority 1 (Packet label):** Search total row +1 to +3 for labels "件数"/"件數", extract adjacent value (right, up to 3 columns) or embedded value
+  - **Priority 1 (Packet label):** Search total row +1 to +3 for labels "件数"/"件數", extract adjacent value (right, up to 3 columns) or embedded value. Adjacent values with unit suffixes (e.g., "7CTNS") should extract leading digits.
   - **Priority 2 (PLT indicator):** Search total_row - 1 or - 2 for "PLT.G"/"PLT. G" pattern, extract leading number or check adjacent cell
-  - **Priority 3 (Below-total patterns):** Search +1 to +3 below total row for unit-suffix patterns ("7托", "30箱"), embedded Chinese patterns ("共7托"), pallet range patterns ("PLT#1(1~34)"), total-with-breakdown patterns ("348（256胶框+92纸箱）" → 348)
+  - **Priority 3 (Below-total patterns):** Search total row itself and +1 to +3 below for unit-suffix patterns ("7托", "30箱", "7CTNS"), embedded Chinese patterns ("共7托"), pallet range patterns ("PLT#1(1~34)"), total-with-breakdown patterns ("348（256胶框+92纸箱）" → 348)
   - Pallet count takes priority over carton count when both appear in same text
+  - Recognized carton units: 箱 (Chinese), CTN/CTNS (English, case-insensitive)
   - Supported formats: pure numeric, with unit suffix, with suffix + trailing text, embedded in PLT indicator, embedded in Chinese text
   - Validation: must be positive integer in range 1-1000
 - **Output:** total_packets integer

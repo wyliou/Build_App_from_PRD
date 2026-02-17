@@ -76,7 +76,7 @@ If no source code exists (greenfield): proceed normally.
 
 3. **Project Summary** — file paths, stack, existing code assessment
 4. **FR to Subsystem Map** — `{requirement_id}: subsystem — acceptance criterion` (use the PRD's own identifier scheme)
-5. **Side-Effect Ownership** — who logs what, non-owners must NOT
+5. **Side-Effect & Validation Ownership** — who logs what, who validates what; each validation rule at exactly one pipeline stage. Non-owners must NOT log or duplicate checks. For orchestrator modules: include a **Field Population Map** — for each validated required field, list every source that can populate it (extraction, override, fallback from ANY FR) and the pipeline step. Validation of a field MUST be sequenced after ALL its population sources.
 6. **Shared Utilities** — functions/constants needed by 2+ modules. For each: signature, placement (module path), consumers, and brief implementation note (<10 lines each)
 7. **Batch Plan** — modules grouped by dependency order; each with: path, test_path, FRs, **exports table** (function signatures with param types + return types), imports, **complexity** (simple/moderate/complex). The exports table is the interface contract for Stage B spec writers.
 8. **Ambiguities** — unclear/contradictory requirements
@@ -91,7 +91,7 @@ If no source code exists (greenfield): proceed normally.
 Conventions belong ONLY in build-context.md. build-plan.md must NOT duplicate them — reference build-context.md instead.
 
 ## Write {project_root}/build-context.md with:
-Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas (including third-party type-stub gaps and float comparison pitfalls), platform-specific considerations. Include a **Subagent Constraints** section with universal implementation rules (no stubs, no type redefinition, no new deps, no cross-module mocking, fixture scoping, singleton teardown) so the delegation prompt can reference it instead of repeating them.
+Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas (including third-party type-stub gaps and cross-extraction consistency: functions extracting values for downstream comparison must use identical precision/rounding rules), platform-specific considerations. Include a **Subagent Constraints** section with universal implementation rules (no stubs, no type redefinition, no new deps, no cross-module mocking, fixture scoping, singleton teardown) so the delegation prompt can reference it instead of repeating them.
 
 Do NOT write spec files — that is Stage B's job.
 Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on exports table signatures. WRITE ALL FILES and verify they exist.
@@ -130,12 +130,12 @@ Imports: {module}: {symbols}
 Tests: {3-5 one-line test descriptions}
 Gotchas: {any, or "None"}
 
-Cross-validate: (a) every Import resolves to an Export in build-plan.md, (b) orchestrator call order has data-populating steps before validation. Fix issues before completing.
+Cross-validate: (a) every Import resolves to an Export in build-plan.md, (b) orchestrator call order satisfies the Field Population Map — for each required field, every population source (extraction, override, fallback from any FR) precedes the validation step that checks it, (c) when two modules extract values for downstream comparison (e.g., per-item sum vs total row), both specs prescribe identical extraction/rounding rules. Fix issues before completing.
 ```
 
 ### After Stage B completes
 
-1. **Spot-check** 2-3 complex specs — verify PRD parameters and enumerated format lists weren't lost. For orchestrator specs, verify call order matches PRD data flow.
+1. **Spot-check** 2-3 complex specs — verify PRD parameters and enumerated format lists weren't lost. For orchestrator specs, verify call order satisfies the Field Population Map: trace each required field from its validation step backward to confirm all population sources (including cross-FR overrides/fallbacks) are sequenced earlier.
 2. **Verify verbatim outputs** — grep PRD for quoted strings/message templates; verify each appears in a spec. Resume subagent if missing.
 3. **FR coverage check** — every FR in build-plan.md must appear in at least one spec.
 4. **Validate dependency graph** — every import from strictly earlier batches. Re-order if violated.
@@ -228,7 +228,7 @@ Do NOT read subagent results on success — test results are your signal.
 
 ### Final-batch additional gate
 
-After the **last batch** only: grep source files for user-visible log/print statements. Cross-reference against PRD format specs (log levels, message formats, field layouts). Check for duplicate messages (same condition reported from 2+ locations) and convention divergence (inconsistent formatting across modules). Fix issues found. Log to `build-log.md`.
+After the **last batch** only: grep source files for user-visible log/print statements. Cross-reference against PRD format specs (log levels, message formats, field layouts). Check for duplicate messages or duplicate validation logic (same condition checked/rejected from 2+ pipeline stages) and convention divergence (inconsistent formatting across modules). Fix issues found. Log to `build-log.md`.
 
 **Context rule:** Never write >30 lines of module code in main context — delegate instead.
 
@@ -250,8 +250,8 @@ Read the **actual source files** of orchestrator/pipeline modules to get real fu
 Use real modules — no mocking of internal components.
 
 Write tests in these categories:
-1. **Boundary tests** (3-5) — wire 2-3 adjacent modules, pass realistic data, verify output. Focus on data handoff points between subsystems.
-2. **Full pipeline tests** (2-3) — synthetic input end-to-end, verify final output structure and content. Include a case where an earlier stage populates a field that a later stage validates (e.g., override/fallback fills a required field).
+1. **Boundary tests** (3-5) — wire 2-3 adjacent modules, pass realistic data, verify output. Focus on data handoff points; when adjacent modules extract values for comparison, verify identical precision.
+2. **Full pipeline tests** (2-3) — synthetic input end-to-end, verify final output structure and content. Include a case where the primary source of a required field is EMPTY and only a cross-FR override/fallback populates it — this catches validation-before-population ordering bugs.
 3. **Error propagation** (3-5) — trigger errors at different pipeline stages, verify they surface correctly to the caller with proper error codes/messages.
 4. **Edge cases** (3-5) — empty input, minimal valid input, maximal input, duplicate entries, missing optional fields.
 5. **Output format** (2-3) — verify end-to-end output matches PRD-specified formats. Check field order, delimiters, headers, encoding.
@@ -372,7 +372,7 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 | Implementation diverges from PRD | Spec lossy — verify spec FRs against PRD, fix spec, re-delegate |
 | Phase 5 finds output/format bugs | Cross-ref PRD directly, fix code, append missing formats to build-context.md |
 | Tests pass individually, fail together | Shared mutable state — check global state, singleton teardown, test ordering deps |
-| Unit tests pass but real data fails | Subagent tested implementation, not spec — fix code in Phase 5 |
+| Unit tests pass but real data fails | Cross-extraction inconsistency, spec parameter loss, or pipeline ordering — verify extraction rules match across modules, check PRD parameters against code, check Field Population Map for validation-before-population |
 | Circular dependency | Move shared types to core module |
 | Ambiguous requirement | Ask user — do not guess |
 | Duplicate code across subagents | Phase 4 deduplication |

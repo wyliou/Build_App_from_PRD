@@ -3,8 +3,9 @@
     "allow": [
       "Bash",
       "Write",
-      "Edit",      
-      "WebSearch"
+      "Edit",
+      "WebSearch",
+      "mcp__ide__executeCode"
     ]
   }
 }
