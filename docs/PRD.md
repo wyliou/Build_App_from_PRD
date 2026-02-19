@@ -182,10 +182,11 @@ AutoConvert automates the conversion of vendor Excel files into a standardized 4
 **FR-008**: System detects currency from data row when header matching fails
 - **Input:** First effective data row (skipping blank rows), current column mapping
 - **Rules:**
+  - Currency column matching MUST NOT hard-fail during column mapping. If no header cell matches a currency pattern, column mapping returns successfully without currency, and this fallback scan runs before any "required column missing" check for currency.
   - Scan data row for currency values: USD, CNY, EUR, RMB, JPY, GBP, HKD, TWD
   - Skip columns already matched to other fields, EXCEPT columns matched to headers containing "PRICE", "AMOUNT", "金额", or "单价" keywords
   - Leftmost currency value found wins
-  - When price or amount columns contain currency codes instead of numeric values (merged header pattern), shift mapping to adjacent column (col+1) if it has a numeric value
+  - When price or amount columns contain currency codes instead of numeric values (merged header pattern), shift **each** affected price/amount column independently to its adjacent column (col+1) if it has a numeric value. Both price AND amount may need shifting in the same file — do not stop after shifting one.
 - **Output:** Currency column index; adjusted price/amount column indices if shifted
 - **Error:** If currency still not found after fallback → ERR_020
 - **Depends:** FR-006
@@ -194,9 +195,12 @@ AutoConvert automates the conversion of vendor Excel files into a standardized 4
 - **Input:** Header row, sub-header row (header_row + 1)
 - **Rules:**
   - If required fields not found in primary header row, check header_row + 1 for sub-headers
+  - Even when the primary header row meets the minimum match threshold, also check header_row + 1: if combining adds ≥2 new field matches, treat it as a sub-header row. This handles split headers where structural columns (e.g., Part No., Qty) are in one row and detail columns (e.g., N.W., G.W.) are in the next.
   - Sub-header cells must contain descriptive text (e.g., "N.W.(KGS)"), NOT data values
   - Currency codes (USD, CNY, etc.) in header_row + 1 are data values, not sub-headers — reject these matches
+  - Cells ending with a colon (`:` or `：`) are label-value pairs (e.g., "净重：", "毛重："), not column headers — exclude them from header matching. These commonly appear on summary lines above the actual header row.
   - When sub-header is detected, data extraction starts at header_row + 2
+  - When header cells are merged across multiple rows (e.g., A10:A11), data extraction must start after the deepest merge bottom row, not just header_row + 1. The merge tracker determines the actual header extent.
 - **Output:** Complete column mapping using primary + sub-header rows; adjusted data start row
 - **Depends:** FR-006, FR-007
 
