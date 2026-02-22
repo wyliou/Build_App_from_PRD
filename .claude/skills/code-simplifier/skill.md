@@ -5,99 +5,97 @@ description: Simplify and clean up source code files
 
 # Code Simplifier
 
-Analyze and simplify source code while preserving functionality.
+Analyze and simplify source code while preserving functionality. Takes a file path or directory as argument.
 
-## Usage
+**Usage:** `/code-simplifier path/to/file.py` or `/code-simplifier src/`
 
-Run on a single file:
-```
-/code-simplifier path/to/file.ext
-```
+---
 
-Run on a directory:
-```
-/code-simplifier src/
-```
+## 1. Discover
 
-## Simplification Rules
+**Auto-detect verification tools — do NOT ask the user.**
 
-### 1. Remove Dead Code
+- **Linter:** Check `pyproject.toml` (`[tool.ruff]`, `[tool.flake8]`), `package.json` (`eslint`), `.eslintrc`, `Cargo.toml` (`clippy`), or similar. Determine the exact lint command.
+- **Test runner:** Check `pyproject.toml`, `package.json`, `Makefile`, or similar. Determine the exact test command.
+- **Formatter:** Check for `ruff format`, `black`, `prettier`, `rustfmt`, etc.
+- **Virtual environment:** If Python, use the project's virtual environment for all commands.
+- **No tests available?** Still proceed with simplification, but rely on the linter and careful review. Note the risk in the report.
+
+---
+
+## 2. Identify Targets
+
+If given a file → process that file.
+If given a directory → scan for source files (exclude tests, config, generated files).
+
+**Skip these files:**
+- Test files (`*_test.*`, `test_*.*`, `*.test.*`, `**/tests/**`, `**/__tests__/**`)
+- Config files (`*.json`, `*.yaml`, `*.toml`, `*.cfg`, `*.ini`)
+- Generated files (`*.generated.*`, `*_pb2.py`, `*.min.js`)
+- Files under 20 lines (too small to benefit)
+
+---
+
+## 3. Simplify
+
+For each target file, apply these rules in order:
+
+**Remove dead code:**
 - Unused imports
-- Unused variables
+- Unused variables and functions (verify no external callers first)
 - Unreachable code blocks
-- Commented-out code (unless marked `# TODO`, `# FIXME`, `// TODO`, `// FIXME`)
+- Commented-out code (unless marked `# TODO`, `# FIXME`, or `# KEEP`)
 
-### 2. Reduce Complexity
-- Flatten nested conditionals where possible
+**Reduce complexity:**
+- Flatten nested conditionals (early returns, guard clauses)
 - Replace complex boolean expressions with named variables
-- Extract repeated logic into helper functions (3+ occurrences)
+- Extract repeated logic into helpers (3+ occurrences)
 - Simplify redundant type conversions
+- Remove redundant `else` after `return` / `raise` / `continue` / `break`
 
-### 3. Improve Readability
+**Improve readability:**
 - Replace magic numbers with named constants
 - Simplify overly verbose expressions
-- Remove redundant else after return/raise/throw/continue/break
 
-### 4. Consolidate Duplicates (within files)
-- Merge similar functions with minor differences
-- Extract common patterns into utilities
-- Remove duplicate validation logic
+**Consolidate duplicates:**
+- Merge similar functions that differ only in a parameter
+- Extract common patterns into shared utilities
 
-### 5. Cross-Module Deduplication
-When running on a directory, scan for code duplicated **across** modules:
-- **Identical functions** — same logic in multiple files (e.g., helper functions written independently by subagents). Consolidate into a single shared module and update all import sites.
-- **Near-identical functions** — same logic with minor naming or parameter differences. Unify the signature, consolidate, and update callers.
-- **Duplicate constants** — same set/dict/list/enum defined in multiple files. Move to a shared location in the most appropriate common module.
-- **Shared placement** — place consolidated code in the lowest common ancestor module in the dependency graph. If no natural home exists, create a shared helpers file within the relevant package. Avoid top-level grab-bag utility files.
-- **Update tests** — after moving code, update test imports accordingly. If duplicate functions had separate tests, consolidate the test cases (keep all unique assertions, remove exact duplicates).
+---
 
-## Constraints
+## 4. Constraints
 
-- **DO NOT** change public API signatures
-- **DO NOT** remove code marked with `# KEEP`, `# REQUIRED`, `// KEEP`, `// REQUIRED`
-- **DO NOT** simplify test files — EXCEPT updating import paths after cross-module consolidation (rule 5)
-- **DO NOT** modify configuration files
-- **PRESERVE** all existing functionality — simplification must be behavior-preserving
+- **DO NOT** change public API signatures (function names, parameters, return types)
+- **DO NOT** remove code marked with `# KEEP` or `# REQUIRED`
+- **DO NOT** add new dependencies
+- **PRESERVE** all existing behavior — simplification must be strictly behavior-preserving
+- **Apply changes incrementally** — one category of simplification at a time per file
 
-## Process
+---
 
-**Single file mode** (`/code-simplifier path/to/file.ext`):
-1. Read the target file
-2. Identify simplification opportunities (rules 1–4)
-3. Apply changes incrementally
-4. Run tests to verify no regressions
-5. Report changes made
+## 5. Verify
 
-**Directory mode** (`/code-simplifier path/to/src/`):
-1. Read all source files in the directory
-2. **Cross-module dedup scan** (rule 5): identify functions, constants, and logic duplicated across files. Group duplicates by content similarity.
-3. Consolidate duplicates into shared modules, update all import sites
-4. Apply within-file simplifications (rules 1–4) to each file
-5. Run both unit AND integration tests to verify no regressions (integration tests exercise cross-module paths affected by dedup)
-6. Report all changes made, grouped by category
+After simplifying each file:
+1. Run the linter on the modified file — fix any new violations
+2. Run the formatter if available
+3. Run tests that cover the modified file (or full suite if unsure)
+4. If tests fail → revert the failing change, try an alternative approach or skip that simplification
 
-## Output Format
+---
 
-**Single file:**
+## 6. Report
+
 ```
-[filename]: N simplifications
-  - Removed N unused imports
-  - Flattened N nested conditionals
-  - Extracted N helper functions
-  - [other changes]
-```
+Files analyzed: N
+Files modified: N (M skipped — no improvements found)
+Lines removed: X
 
-**Directory (with dedup):**
-```
-[CROSS-MODULE DEDUP]
-  - Consolidated `helper_fn` from module_a + module_b → shared/common (2 files updated)
-  - Moved SHARED_CONSTANT from module_a + module_b → core/constants (2 files updated)
+Changes:
+- path/to/file.py: removed N unused imports, flattened N nested conditionals
+- path/to/other.py: extracted helper function for repeated pattern
 
-[PER-FILE SIMPLIFICATIONS]
-[filename]: N simplifications
-  - ...
-
-[filename]: already clean
-
-[TESTS] All N tests passing
+Verification:
+- Linter: pass / N issues
+- Tests: pass / N failures (with details)
+- Skipped simplifications: (list any reverted due to test failures)
 ```
