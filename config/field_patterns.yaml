@@ -297,6 +297,26 @@ packing_columns:
     required: true
 
   # ----------------------------------------------------------------------------
+  # PO NUMBER (Required)
+  # Purchase Order reference
+  # ----------------------------------------------------------------------------
+  po_no:
+    patterns:
+      # English
+      - '(?i)^p\.?o\.?\s*no\.?'           # PO No, P.O. No., PO NO.
+      - '(?i)^po\s*number'                # PO Number
+      - '(?i)^order\s*no'                # PO Number
+      - '(?i)^po#'                        # PO#
+      - '(?i)^purchase\s*order'           # Purchase Order
+      - '(?i)^customer\s*purchase\s*order'# Customer Purchase Order
+      - '(?i)^cpo'                        # CPO
+      # Chinese
+      - '(?i)采购订单号'                   # Purchase Order Number
+      - '(?i)订单号'                       # Order Number
+    type: string
+    required: false
+
+  # ----------------------------------------------------------------------------
   # QUANTITY (Required)
   # Quantity in packing
   # ----------------------------------------------------------------------------

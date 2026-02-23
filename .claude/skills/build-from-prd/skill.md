@@ -23,7 +23,7 @@ Two stages. **Stage A**: single subagent reads PRD + architecture, writes `build
 ```
 You are a software architect. Discover the project, read PRD + architecture, and produce planning files.
 
-Find and read: PRD (docs/PRD.md), Architecture (docs/architecture.md — optional, proceed without), manifest, source dir, test data dir, config files. If PRD is MISSING, stop and report immediately.
+Find and read: PRD (docs/PRD.md), Architecture (docs/architecture.md — optional, proceed without), manifest, source dir, test data dir, config files. Cross-validate config field attributes (required, type, patterns) against PRD — flag contradictions as ambiguities. If PRD is MISSING, stop and report immediately.
 
 ## PRD Format Analysis
 
@@ -76,7 +76,7 @@ If no source code exists (greenfield): proceed normally.
 
 3. **Project Summary** — file paths, stack, existing code assessment
 4. **FR to Subsystem Map** — `{requirement_id}: subsystem — acceptance criterion` (use the PRD's own identifier scheme)
-5. **Side-Effect & Validation Ownership** — who logs what, who validates what; each validation rule at exactly one pipeline stage. Non-owners must NOT log or duplicate checks. For each validation error code, list the **single owning module** and add an explicit **Non-Owner Exclusion List** — modules that touch the same fields but must NOT validate them. These exclusions are copied verbatim into Stage B spec files as "DO NOT validate X — owned by Y" lines. For orchestrator modules: include a **Field Population Map** — for each validated required field, list every source that can populate it (extraction, override, fallback from ANY FR — including transformation-phase sources) and the pipeline step. Cross-check: scan ALL FRs for keywords "override", "fallback", "default", "when empty", "use X as Y" — each is a population source that must appear in the map. Validation of a field MUST be sequenced after ALL its population sources. Additionally, include a **Detection-Fallback Map** — for each field that has both a primary detection path (e.g., header pattern match) and a fallback path (e.g., data-row scan), document the sequencing constraint: the primary detection MUST NOT hard-fail (e.g., return null/None) before the fallback has a chance to run. The primary should return a partial/incomplete result that the fallback can augment, and the hard-fail check should occur only after all fallback paths have been attempted.
+5. **Side-Effect & Validation Ownership** — who logs what, who validates what; each validation rule at exactly one pipeline stage. Non-owners must NOT log or duplicate checks. For each validation error code, list the **single owning module** and add an explicit **Non-Owner Exclusion List** — modules that touch the same fields but must NOT validate them. These exclusions are copied verbatim into Stage B spec files as "DO NOT validate X — owned by Y" lines. For orchestrator modules with multi-step data flow (skip for stateless request-response): include a **Field Population Map** — for each validated required field, list every source that can populate it (extraction, override, fallback from ANY FR — including transformation-phase sources) and the pipeline step. Cross-check: scan ALL FRs for keywords "override", "fallback", "default", "when empty", "use X as Y" — each is a population source that must appear in the map. Validation of a field MUST be sequenced after ALL its population sources. Additionally, include a **Detection-Fallback Map** — for each field that has both a primary detection path (e.g., header pattern match) and a fallback path (e.g., data-row scan), document the sequencing constraint: the primary detection MUST NOT hard-fail (e.g., return null/None) before the fallback has a chance to run. The primary should return a partial/incomplete result that the fallback can augment, and the hard-fail check should occur only after all fallback paths have been attempted.
 6. **Shared Utilities** — functions/constants needed by 2+ modules. For each: signature, placement (module path), consumers, and brief implementation note (<10 lines each)
 7. **Batch Plan** — modules grouped by dependency order; each with: path, test_path, FRs, **exports table** (function signatures with param types + return types), imports, **complexity** (simple/moderate/complex). The exports table is the interface contract for Stage B spec writers.
 8. **Ambiguities** — unclear/contradictory requirements
@@ -91,7 +91,7 @@ If no source code exists (greenfield): proceed normally.
 Conventions belong ONLY in build-context.md. build-plan.md must NOT duplicate them — reference build-context.md instead.
 
 ## Write {project_root}/build-context.md with:
-Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas (including third-party type-stub gaps and cross-extraction consistency: functions extracting values for downstream comparison must use identical precision/rounding rules), platform-specific considerations. Include an **Index Convention Table** documenting every shared data structure that uses row/column indices — for each, state whether it uses 0-based or 1-based indexing, and name the conversion pattern (e.g., "openpyxl row = internal_row + 1"). Include a **Data Representation Consistency Table** — scan ALL FRs for any field/column that the PRD says can appear in an alternative representation (merged cells, nested structures, encoded formats, nullable wrappers, etc.). List every such field and require ALL readers (not just the FR that mentions the alternative form) to handle it. If FR-X says "field F can appear in form Z" and FR-Y reads field F without mentioning form Z, the table must flag this and the spec for FR-Y's module must handle form Z. Include a **Subagent Constraints** section with universal implementation rules (no stubs, no type redefinition, no new deps, no cross-module mocking, fixture scoping, singleton teardown, dictionary key lookups must use exact casing from the definition source, wrap all parse/conversion calls for user-supplied data in try/except — fields with optional or polymorphic content may contain unexpected types) so the delegation prompt can reference it instead of repeating them.
+Stack, error handling strategy, logging pattern, all conventions, all side-effect rules, test requirements (3-5 per function: happy/edge/error), known gotchas (including cross-extraction consistency: identical precision/rounding for downstream comparison, adapter/wrapper compatibility: document library properties that filter by isinstance — consumers must use compatible iteration paths), platform-specific considerations. Include an **Index Convention Table** (skip for pure API/web/database projects) documenting every shared data structure that uses row/column indices — for each, state whether it uses 0-based or 1-based indexing, and name the conversion pattern (e.g., "openpyxl row = internal_row + 1"). Include a **Data Representation Consistency Table** — scan ALL FRs for any field/column that can appear in an alternative representation (merged cells, nested structures, encoded formats, nullable wrappers, non-data rows within data ranges such as summary/label/pallet rows). List every such field and require ALL readers to handle it; list every non-data row pattern with skip-rule keywords. If FR-X says "field F can appear in form Z" and FR-Y reads field F without mentioning form Z, the table must flag this. Include a **Subagent Constraints** section with universal implementation rules (no stubs, no type redefinition, no new deps, no cross-module mocking, fixture scoping, singleton teardown, dictionary key lookups must use exact casing from the definition source, wrap all parse/conversion calls for user-supplied data in try/except — fields with optional or polymorphic content may contain unexpected types) so the delegation prompt can reference it instead of repeating them.
 
 Do NOT write spec files — that is Stage B's job.
 Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on exports table signatures. WRITE ALL FILES and verify they exist.
@@ -100,7 +100,7 @@ Rules: PRD is source of truth. Distill prose, never parameters. Be exhaustive on
 ### After Stage A completes
 
 1. **Verify files exist** — resume subagent if any are missing.
-2. **Read `build-plan.md`** — verify exports table has concrete signatures, FR mapping is complete, batch plan follows merging rules.
+2. **Read `build-plan.md`** — verify: exports table has concrete signatures with warning-carrying return types where needed, FR mapping is complete, batch plan follows merging rules, Field Population Map covers all override/fallback sources.
 3. **Resolve ambiguities** — ask user if needed.
 
 ### Stage B: Parallel Spec Writing
@@ -131,7 +131,7 @@ Imports: {module}: {symbols}
 Tests: {3-5 one-line test descriptions}
 Gotchas: {any, or "None"}
 
-Cross-validate: (a) every Import resolves to an Export in build-plan.md, (b) orchestrator call order satisfies the Field Population Map — for each required field, every population source (extraction, override, fallback from any FR) precedes the validation step that checks it, (c) when two modules extract values for downstream comparison (e.g., per-item sum vs total row), both specs prescribe identical extraction/rounding rules, (d) orchestrator call order satisfies the Detection-Fallback Map — any function that has a fallback path must NOT have its primary path hard-fail (return null/None that blocks the pipeline) before the fallback runs. The spec must explicitly note that the primary returns a partial result and the hard-fail check occurs after all fallbacks, (e) data representation consistency — for every field listed in the Data Representation Consistency Table, verify that ALL readers in ALL specs handle the alternative form (not just the module whose FR mentions it), (f) ownership exclusions — verify that no spec validates/logs an error code it doesn't own per the Non-Owner Exclusion List. Fix issues before completing.
+Cross-validate: (a) every Import resolves to an Export in build-plan.md, (b) orchestrator call order satisfies the Field Population Map — for each required field, every population source (extraction, override, fallback from any FR) precedes the validation step that checks it, (c) when two modules extract values for downstream comparison (e.g., per-item sum vs total row), both specs prescribe identical extraction/rounding rules, (d) orchestrator call order satisfies the Detection-Fallback Map — any function that has a fallback path must NOT have its primary path hard-fail (return null/None that blocks the pipeline) before the fallback runs. The spec must explicitly note that the primary returns a partial result and the hard-fail check occurs after all fallbacks, (e) data representation consistency — for every field listed in the Data Representation Consistency Table, verify that ALL readers in ALL specs handle the alternative form (not just the module whose FR mentions it), (f) ownership exclusions — verify that no spec validates/logs an error code it doesn't own per the Non-Owner Exclusion List, (g) warning propagation — every function generating ATT/warning codes must have a return type that propagates them (e.g., tuple with warnings list) and the caller's spec must collect them. Fix issues before completing.
 ```
 
 ### After Stage B completes
@@ -178,9 +178,9 @@ For batches with >10 modules, group related simple modules into combined tasks (
 ### Model selection
 
 Use the **complexity** field from the Batch Plan to select the subagent model:
-- **simple** → `haiku` (pure functions, minimal logic)
-- **moderate** → `sonnet` (some I/O, moderate logic)
-- **complex** → `opus` (orchestration, many edge cases)
+- **simple** → fastest available model (pure functions, minimal logic)
+- **moderate** → mid-tier model (some I/O, moderate logic)
+- **complex** → strongest available model (orchestration, many edge cases)
 
 Pass the `model` parameter when launching the subagent.
 
@@ -191,7 +191,7 @@ Subagents read their **spec file** instead of the full PRD/plan:
 Implement and test: {subsystem_name}
 Module: {module_path} | Tests: {test_path}
 
-Read {project_root}/specs/{module_spec}.md for your complete spec (requirements, exports, imports, side-effects, tests, gotchas, verbatim outputs).
+Read {project_root}/specs/{module_spec}.md — implement ALL sections. Gotchas are known bug sources; missing any is a defect. Verbatim Outputs must be character-exact.
 Read {project_root}/build-context.md for project conventions and the Subagent Constraints section — follow all rules there.
 Read source files of shared utilities (core/) you import — understand their behavior, don't reimplement.
 EXPORTS must match the spec exactly. IMPORTS from lower batches are implemented — import and CALL them, do NOT mock.
@@ -201,7 +201,7 @@ Additional constraints:
 - Only modify {module_path} and {test_path}. Do NOT touch __init__.py, conftest.py, or core modules.
 - Tests must verify FR acceptance criteria. Each enumerated format/variant in the spec MUST have a dedicated test case. For numeric functions: include IEEE 754 artifact values.
 - If your spec has a Verbatim Outputs section, write tests verifying exact string matches.
-- For pipeline/orchestrator modules: call ordering MUST match spec's required sequence — data-populating steps must precede validation of the fields they populate.
+- Call ordering MUST match spec's required sequence — both inter-function pipeline order AND intra-function field-read order. When a field has override sources, read it optionally first, apply overrides, then validate. Do NOT use require-or-raise helpers on fields with upstream population sources.
 - For complex modules: also skim the PRD and review upstream dependency tests to understand expected API behavior.
 - If a required import doesn't exist or has wrong signature, STOP and report — do not stub or reimplement.
 - Before finishing: run `{lint_command}`, `{type_check_command}`, `{test_command} {test_path}` — fix all errors. Re-read your spec's FRs — verify every criterion has a test.
@@ -218,9 +218,9 @@ After ALL subagents in a batch complete, run a **tiered gate** based on batch co
 - **Stub detection:** Search for `{stub_detection_pattern}`. Re-delegate if found.
 - **Scope check:** `git diff --name-only` — files outside batch's expected paths are out-of-scope. Accept additions to shared/core; revert modifications to other modules' logic.
 - **Format + lint + type check:** Run in parallel. If a fix pattern appears in ≥2 modules, append to `build-context.md`.
-- **Test:** Run batch tests, then smoke test (`-x`/`--bail`/`--failfast`).
+- **Test:** Run batch tests, then smoke test (`-x`/`--bail`/`--failfast`). For Field Population Map fields: grep source for require-or-raise on fields with override sources — they must be read-optional-first.
 
-**Milestone gates** (midpoint + final batch): also run the **full test suite**. At midpoint, if test data exists, run the app against 1-2 representative files to catch integration-level bugs early (pipeline ordering, format coverage gaps surface here, not in unit tests).
+**Milestone gates** (midpoint + final batch): also run the **full test suite**. At midpoint, if test data exists, run the app against 2-3 files chosen for format diversity (different file formats, vendor layouts, files with non-standard rows) to catch integration bugs early.
 
 Do NOT read subagent results on success — test results are your signal.
 
@@ -310,8 +310,8 @@ Run the **full test suite**. Fix any failures before proceeding. Log both result
 
 If the skill is unavailable, validate manually:
 1. Execute `{run_command}` against test data directory
-2. Categorize results (SUCCESS / ATTENTION / FAILED), cross-ref error codes against PRD
-3. For failures indicating code bugs (not data issues): fix, re-run tests, re-validate (max 3 rounds)
+2. Triage failures: group by error code, verify each fires from the correct owning module/pipeline stage. Wrong-stage or unexpected codes → code bugs; correct-stage with plausible data explanations → data issues.
+3. Batch-fix all code bugs before re-validating, re-run tests, re-validate (max 3 rounds)
 
 After: if code changes were made, re-run full test suite. Relay results to user.
 
@@ -383,12 +383,12 @@ Each module gets a maximum of **2 re-delegation attempts** (3 total including or
 | Phase 5 finds output/format bugs | Cross-ref PRD directly, fix code, append missing formats to build-context.md |
 | Tests pass individually, fail together | Shared mutable state — check global state, singleton teardown, test ordering deps |
 | Unit tests pass but real data fails | Cross-extraction inconsistency, spec parameter loss, or pipeline ordering — verify extraction rules match across modules, check PRD parameters against code, check Field Population Map for validation-before-population |
-| Circular dependency | Move shared types to core module |
-| Ambiguous requirement | Ask user — do not guess |
+| Circular dependency or ambiguous requirement | Move shared types to core module; ask user for ambiguities — do not guess |
+| Adapter/wrapper incompatible with downstream iteration | Document library properties that filter by isinstance; use internal accessors (e.g., `_sheets`) or sheetnames; add adapter to downstream test fixtures |
 | Duplicate code across subagents | Phase 4 deduplication |
 | Context getting large / subagent prompt too long | Delegate to fewer, larger subagents; run steps directly if skill expansion exceeds subagent limits |
-| Spec or dependency missing | Resume Phase 1 subagent or fix scaffold; re-delegate |
-| Dependency graph violation | Re-order batches per Phase 1 step 6, log to build-log.md |
+| Spec/dependency missing or graph violation | Resume Phase 1 subagent or fix scaffold; re-order batches if needed, log to build-log.md |
+| Warning/ATT code generated but not surfaced to caller | Function return type must include warning channel (tuple with list); caller must collect it. Check all ATT_xxx generation sites |
 | Dict key casing mismatch (e.g., "COD" vs "cod") | Grep all `.get("...")` and `["..."]` lookups, cross-reference against definition source (config, enum, dataclass). Silent None returns are invisible to tests — add targeted test for the lookup path |
 | Index convention mismatch (0-based vs 1-based) | Trace the value from producer to all consumers, verify naming and arithmetic are consistent. Check both production code and test fixtures — tests using the wrong convention mask the bug |
 | Primary detection blocks fallback (hard-fail before fallback runs) | Check Detection-Fallback Map in build-plan.md. Fix primary to return partial result; move hard-fail check after fallback |
